@@ -8,8 +8,9 @@ from models.network import DualColorNetwork
 from core.criterion import total_variation_loss, color_loss
 from core.optimizer import CosineAnnealingWarmUpRestarts
 from prettytable import PrettyTable
-from utils.utils import calculate_delta_e, calculate_psnr, calculate_ssim
+from utils.utils import calculate_delta_e, calculate_psnr, calculate_ssim, image_saving
 import time
+from torchvision.transforms import transforms
 
 class DualColor_lightning(pl.LightningModule):
     def __init__(self, args):
@@ -20,7 +21,9 @@ class DualColor_lightning(pl.LightningModule):
             self.model.load_state_dict(torch.load(args.model_path))
         self.distance_loss = nn.L1Loss()
         self.weight = args.loss_weights
-
+        self.inv_normalize = transforms.Normalize(mean=[-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225],
+                                                   std=[1 / 0.229, 1 / 0.224, 1 / 0.225])
+        
     def _loss_function(self, ycbcr, rgb, target_ycbcr, target_rgb):
         loss_ycbcr = self.distance_loss(ycbcr, target_ycbcr)
         loss_rgb = self.distance_loss(rgb, target_rgb)
@@ -55,7 +58,9 @@ class DualColor_lightning(pl.LightningModule):
         self.whole_delta.append(torch.mean(delta_e))
         self.whole_psnr.append(torch.mean(psnr))
         self.whole_ssim.append(torch.mean(ssim))
-        
+        image_saving(self.inv_normalize(input).permute(0, 2, 3, 1).detach().cpu().numpy()*255,
+                    self.inv_normalize(rgb).permute(0, 2, 3, 1).detach().cpu().numpy()*255,
+                    self.inv_normalize(target_rgb).permute(0, 2, 3, 1).detach().cpu().numpy()*255, batch_idx)
     
     def validation_epoch_end(self, outputs):
         table = PrettyTable()
@@ -101,13 +106,12 @@ class DualColor_lightning(pl.LightningModule):
         else:
             optimizer = optim.AdamW(self.model.parameters(), eps=self.args.eps, betas=self.args.betas,
                                             lr=self.args.lr, weight_decay=self.args.weight_decay)
-        # if self.args.scheduler=="LambdaLR":
-        #     scheduler = optim.lr_scheduler.LambdaLR(optimizer=optimizer, lr_lambda=lambda epoch:self.args.lambda_weight**epoch)
-        # else:
-        #     scheduler = CosineAnnealingWarmUpRestarts(optimizer, T_0=self.args.t_scheduler, T_mult=self.args.trigger_scheduler, 
-        #                                             eta_max=self.args.eta_scheduler, T_up=self.args.up_scheduler, gamma=self.args.gamma_scheduler)
-        # return {"optimizer": optimizer, "lr_scheduler": scheduler}
-        return {"optimizer": optimizer}
+        if self.args.scheduler=="LambdaLR":
+            scheduler = optim.lr_scheduler.LambdaLR(optimizer=optimizer, lr_lambda=lambda epoch:self.args.lambda_weight**epoch)
+        else:
+            scheduler = CosineAnnealingWarmUpRestarts(optimizer, T_0=self.args.t_scheduler, T_mult=self.args.trigger_scheduler, 
+                                                    eta_max=self.args.eta_scheduler, T_up=self.args.up_scheduler, gamma=self.args.gamma_scheduler)
+        return {"optimizer": optimizer, "lr_scheduler": scheduler}
 
     def save(self):
         torch.save(self.model.state_dict(), os.path.join(self.args.model_save_path, 'model.pth'))
