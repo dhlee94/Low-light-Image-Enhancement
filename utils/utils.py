@@ -1,15 +1,10 @@
 import os
-import yaml
-from easydict import EasyDict
 import random
-import cv2
 import numpy as np
 import torch
-import time
-import logging
-from pathlib import Path
 import torch.nn.functional as F
 from skimage import color
+from PIL import Image
 
 def seed_everything(seed: int = 304):
     random.seed(seed)
@@ -68,3 +63,16 @@ def closest_number(num):
     closest_int = round(num / 64)
     closest_power = closest_int * 64
     return closest_power
+
+def image_saving(images, retouchings, ground_truths, index):
+    for idx, (image, retouching, ground_truth) in enumerate(zip(images, retouchings, ground_truths)):
+        total_width = image.shape[1] + retouching.shape[1] + ground_truth.shape[1]
+        combined_image = Image.new("RGB", (total_width, image.shape[0]))
+        images = [image, retouching, ground_truth]
+        x_offset = 0
+        for image in images:
+            img = Image.fromarray(np.uint8(image))
+            combined_image.paste(img, (x_offset, 0))
+            x_offset += img.width
+        combined_image.save(f"./imgs/{index}_{idx}.png", "PNG")
+
