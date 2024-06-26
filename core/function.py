@@ -53,12 +53,12 @@ class DualColor_lightning(pl.LightningModule):
         delta_e = calculate_delta_e(rgb, target_rgb)
         psnr = calculate_psnr(rgb, target_rgb)
         ssim = calculate_ssim(rgb, target_rgb)
-        self.whole_delta.append(torch.mean(delta_e))
-        self.whole_psnr.append(torch.mean(psnr))
-        self.whole_ssim.append(torch.mean(ssim))
+        self.whole_delta.append(torch.mean(delta_e).detach().cpu())
+        self.whole_psnr.append(torch.mean(psnr).detach().cpu())
+        self.whole_ssim.append(torch.mean(ssim).detach().cpu())
         image_saving(input.permute(0, 2, 3, 1).detach().cpu().numpy()*255,
                     rgb.permute(0, 2, 3, 1).detach().cpu().numpy()*255,
-                    target_rgb.permute(0, 2, 3, 1).detach().cpu().numpy()*255, batch_idx)
+                    target_rgb.permute(0, 2, 3, 1).detach().cpu().numpy()*255, self.args.img_save_path, batch_idx)
     
     def validation_epoch_end(self, outputs):
         table = PrettyTable()
@@ -80,9 +80,9 @@ class DualColor_lightning(pl.LightningModule):
         delta_e = calculate_delta_e(rgb, target_rgb)
         psnr = calculate_psnr(rgb, target_rgb)
         ssim = calculate_ssim(rgb, target_rgb)
-        self.whole_delta.append(torch.mean(delta_e))
-        self.whole_psnr.append(torch.mean(psnr))
-        self.whole_ssim.append(torch.mean(ssim))
+        self.whole_delta.append(torch.mean(delta_e).detach().cpu())
+        self.whole_psnr.append(torch.mean(psnr).detach().cpu())
+        self.whole_ssim.append(torch.mean(ssim).detach().cpu())
     
     def test_epoch_end(self, outputs):
         table = PrettyTable()
