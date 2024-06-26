@@ -10,7 +10,6 @@ from core.optimizer import CosineAnnealingWarmUpRestarts
 from prettytable import PrettyTable
 from utils.utils import calculate_delta_e, calculate_psnr, calculate_ssim, image_saving
 import time
-from torchvision.transforms import transforms
 
 class DualColor_lightning(pl.LightningModule):
     def __init__(self, args):
@@ -21,8 +20,6 @@ class DualColor_lightning(pl.LightningModule):
             self.model.load_state_dict(torch.load(args.model_path))
         self.distance_loss = nn.L1Loss()
         self.weight = args.loss_weights
-        self.inv_normalize = transforms.Normalize(mean=[-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225],
-                                                   std=[1 / 0.229, 1 / 0.224, 1 / 0.225])
         
     def _loss_function(self, ycbcr, rgb, target_ycbcr, target_rgb):
         loss_ycbcr = self.distance_loss(ycbcr, target_ycbcr)
@@ -38,7 +35,8 @@ class DualColor_lightning(pl.LightningModule):
         input, target_ycbcr, target_rgb = batch
         ycbcr, rgb = self(input, infer=False)
         loss_ycbcr, loss_rgb, loss_tv, loss_color  = self._loss_function(ycbcr, rgb, target_ycbcr, target_rgb)
-        # print(f"loss_ycbcr :{loss_ycbcr:.4f} loss_rgb : {loss_rgb:.4f} loss_tv : {loss_tv:.4f} loss_color : {loss_color:.4f}")
+        if batch_idx%self.args.check_loss==0:
+            print(f"loss_ycbcr :{loss_ycbcr:.4f} loss_rgb : {loss_rgb:.4f} loss_tv : {loss_tv:.4f} loss_color : {loss_color:.4f}")
         return self.weight[0]*loss_ycbcr + self.weight[1]*loss_rgb + self.weight[2]*loss_tv + self.weight[3]*loss_color
 
     def on_validation_start(self):
@@ -58,9 +56,9 @@ class DualColor_lightning(pl.LightningModule):
         self.whole_delta.append(torch.mean(delta_e))
         self.whole_psnr.append(torch.mean(psnr))
         self.whole_ssim.append(torch.mean(ssim))
-        image_saving(self.inv_normalize(input).permute(0, 2, 3, 1).detach().cpu().numpy()*255,
-                    self.inv_normalize(rgb).permute(0, 2, 3, 1).detach().cpu().numpy()*255,
-                    self.inv_normalize(target_rgb).permute(0, 2, 3, 1).detach().cpu().numpy()*255, batch_idx)
+        image_saving(input.permute(0, 2, 3, 1).detach().cpu().numpy()*255,
+                    rgb.permute(0, 2, 3, 1).detach().cpu().numpy()*255,
+                    target_rgb.permute(0, 2, 3, 1).detach().cpu().numpy()*255, batch_idx)
     
     def validation_epoch_end(self, outputs):
         table = PrettyTable()
@@ -111,7 +109,8 @@ class DualColor_lightning(pl.LightningModule):
         else:
             scheduler = CosineAnnealingWarmUpRestarts(optimizer, T_0=self.args.t_scheduler, T_mult=self.args.trigger_scheduler, 
                                                     eta_max=self.args.eta_scheduler, T_up=self.args.up_scheduler, gamma=self.args.gamma_scheduler)
-        return {"optimizer": optimizer, "lr_scheduler": scheduler}
+        # return {"optimizer": optimizer, "lr_scheduler": scheduler}
+        return {"optimizer": optimizer}
 
     def save(self):
         torch.save(self.model.state_dict(), os.path.join(self.args.model_save_path, 'model.pth'))
