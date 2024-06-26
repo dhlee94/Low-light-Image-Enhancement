@@ -7,32 +7,34 @@ class RGB2YCbCr(nn.Module):
         super(RGB2YCbCr, self).__init__()
 
     def forward(self, x):
+        x = x * 255.0
         R = x[:, 0, :, :]
         G = x[:, 1, :, :]
         B = x[:, 2, :, :]
         
         Y = 0.299 * R + 0.587 * G + 0.114 * B
-        Cb = -0.169 * R - 0.331 * G + 0.5 * B + 128 / 255.0
-        Cr = 0.5 * R - 0.419 * G - 0.081 * B + 128 / 255.0
+        Cb = -0.169 * R - 0.331 * G + 0.5 * B + 128
+        Cr = 0.5 * R - 0.419 * G - 0.081 * B + 128
         
         out = torch.stack((Y, Cb, Cr), dim=1)
-        return out
+        return out / 255.0
 
 class YCbCr2RGB(nn.Module):
     def __init__(self):
         super(YCbCr2RGB, self).__init__()
 
     def forward(self, x):
+        x = x * 255.0
         Y = x[:, 0, :, :]
-        Cb = x[:, 1, :, :] - 128 / 255.0
-        Cr = x[:, 2, :, :] - 128 / 255.0
+        Cb = x[:, 1, :, :] - 128
+        Cr = x[:, 2, :, :] - 128
         
-        R = Y + 1.402 * Cr
-        G = Y - 0.344136 * Cb - 0.714136 * Cr
-        B = Y + 1.772 * Cb
+        R = Y + 1.403 * Cr
+        G = Y - 0.344 * Cb - 0.714 * Cr
+        B = Y + 1.773 * Cb
         
         out = torch.stack((R, G, B), dim=1)
-        return out
+        return out / 255.0
     
 class Conv(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=1, stride=1, padding=0, batchnorm=False, bias=True):
@@ -51,7 +53,7 @@ class GlobalPrior(nn.Module):
         super(GlobalPrior, self).__init__()
         self.downsample = Conv(in_channels=in_channels, out_channels=in_channels, kernel_size=7, stride=4, padding=3)
         self.conv1 = Conv(in_channels=in_channels, out_channels=hidden_channels)
-        self.conv2 = Conv(in_channels=hidden_channels, out_channels=hidden_channels)
+        self.conv2 = Conv(in_channels=hidden_channels, out_channels=hidden_channels, kernel_size=3, stride=1, padding=1)
         self.fc = nn.Linear(hidden_channels*3, out_channels)
 
     def forward(self, x):
@@ -67,10 +69,11 @@ class GlobalPrior(nn.Module):
         return torch.tanh(global_prior)
     
 class CPM(nn.Module):
-    def __init__(self, in_channels=3, gp=32, hidden_channels=64):
+    def __init__(self, in_channels=3, gp=32, hidden_channels=64, kernel_size=1, stride=1, padding=0):
         super(CPM, self).__init__()
         self.fc1 = nn.Linear(in_channels, hidden_channels)
-        self.layer = Conv(in_channels=hidden_channels, out_channels=hidden_channels)
+        self.layer = Conv(in_channels=hidden_channels, out_channels=hidden_channels,
+                          kernel_size=kernel_size, stride=stride, padding=padding)
         self.global_layer = GlobalPrior(in_channels=in_channels, hidden_channels=gp, out_channels=hidden_channels)
         self.fc2 = nn.Linear(hidden_channels, in_channels)
         self.in_channels= in_channels
