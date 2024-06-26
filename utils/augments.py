@@ -67,7 +67,7 @@ class Albumentations:
             A.RandomGamma(p=1.0),
             # A.ImageCompression(quality_lower=75, p=1.0)
             ], p=0.5),
-            A.RandomBrightnessContrast(p=1.0, brightness_limit=(-0.4, 0.0), contrast_limit=(-0.0, 0.0), always_apply=True),            
+            A.RandomBrightnessContrast(p=1.0, brightness_limit=(-0.2, 0.0), contrast_limit=(-0.0, 0.0), always_apply=True),            
         ])
     def __call__(self, data):
         data = self.transform(image=data)
