@@ -54,14 +54,15 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=1, help='Number of Batch Size')
     parser.add_argument('--epoch', default=100, type=int, help='Number of Epoch')
     parser.add_argument('--workers', type=int, default=1, help='Number of Workers')
-    parser.add_argument('--check_val', type=int, default=1, help='Check validation step')
+    parser.add_argument('--check_val', type=int, default=10, help='Check validation step')
+    parser.add_argument('--check_loss', type=int, default=100, help='Check training loss')
 
     parser.add_argument('--img_size', default=256, type=int, help='model input image size')
     parser.add_argument('--in_channels', default=3, type=int, help='model in channels')
     parser.add_argument('--gp', default=32, type=int, help='model global priors')
     parser.add_argument('--hidden_channels', default=64, type=int, help='model hidden channels')
 
-    parser.add_argument('--loss_weights', default=[0.5, 2., 1., 6.5], nargs='+', type=int, help='[ycbcr, rgb, tv, color] weight')
+    parser.add_argument('--loss_weights', default=[0.01, 1., 0.1, 0.1], nargs='+', type=int, help='[ycbcr, rgb, tv, color] weight')
     parser.add_argument('--optim', default='AdamW', type=str, help='type of optimizer')
     parser.add_argument('--momentum', default=0.95, type=float, help='SGD momentum')
     parser.add_argument('--lr', default=5e-5, type=float, help='Train Learning Rate')
@@ -69,11 +70,11 @@ if __name__ == '__main__':
     parser.add_argument('--betas', default=(0.9, 0.999), help='AdamW optimizer betas')
     parser.add_argument('--weight_decay', default=0.95, type=float, help='AdamW optimizer weight decay')
 
-    parser.add_argument('--scheduler', default='LambdaLR', type=str, help='type of Scheduler')
+    parser.add_argument('--scheduler', default='CosineWarmUp', type=str, help='type of Scheduler')
     parser.add_argument('--lambda_weight', default=0.975, type=float, help='LambdaLR Scheduler lambda weight')
     parser.add_argument('--t_scheduler', default=100, type=int, help='CosineAnnealingWarmUpRestarts optimizer time step')
     parser.add_argument('--trigger_scheduler', default=1, type=int, help='CosineAnnealingWarmUpRestarts optimizer T trigger')
-    parser.add_argument('--eta_scheduler', default=1.25e-3, type=float, help='CosineAnnealingWarmUpRestarts optimizer eta max')
+    parser.add_argument('--eta_scheduler', default=5e-5, type=float, help='CosineAnnealingWarmUpRestarts optimizer eta max')
     parser.add_argument('--up_scheduler', default=10, type=int, help='CosineAnnealingWarmUpRestarts optimizer time Up')
     parser.add_argument('--gamma_scheduler', default=0.5, type=float, help='CosineAnnealingWarmUpRestarts optimizer gamma')
 
