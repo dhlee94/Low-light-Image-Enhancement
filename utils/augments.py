@@ -42,8 +42,8 @@ class Resize:
 class Normalize:
     def __init__(self, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225), p=1.0):
         self.transform = T.Compose([
-            T.ToTensor(),
-            T.Normalize(mean=mean, std=std)            
+            T.ToTensor()
+            # T.Normalize(mean=mean, std=std)            
             ])
         self.p = p
     def __call__(self, data):
@@ -63,11 +63,11 @@ class Albumentations:
             A.OneOf([
             A.Blur(p=1.0),
             A.MedianBlur(p=1.0),
-            A.CLAHE(p=1.0),
+            # A.CLAHE(p=1.0),
             A.RandomGamma(p=1.0),
-            A.ImageCompression(quality_lower=75, p=1.0)
+            # A.ImageCompression(quality_lower=75, p=1.0)
             ], p=0.5),
-            A.RandomBrightnessContrast(p=1.0),            
+            A.RandomBrightnessContrast(p=1.0, brightness_limit=(-0.4, 0.0), contrast_limit=(-0.0, 0.0), always_apply=True),            
         ])
     def __call__(self, data):
         data = self.transform(image=data)
