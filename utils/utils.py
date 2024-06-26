@@ -33,7 +33,8 @@ def calculate_psnr(img1, img2):
 def calculate_ssim(img1, img2):
     C1 = 0.01 ** 2
     C2 = 0.03 ** 2
-    window = gaussian_filter(size=11, sigma=1.5).reshape(1, 1, 11, 11).expand(1, 3, 11, 11)
+    device = img1.get_device()
+    window = gaussian_filter(size=11, sigma=1.5).reshape(1, 1, 11, 11).expand(1, 3, 11, 11).to(torch.device(f"cuda:{device}"))
     mu1 = F.conv2d(img1, window / 121, padding=5)
     mu2 = F.conv2d(img2, window / 121, padding=5)
     
@@ -64,7 +65,7 @@ def closest_number(num):
     closest_power = closest_int * 64
     return closest_power
 
-def image_saving(images, retouchings, ground_truths, index):
+def image_saving(images, retouchings, ground_truths, path, index):
     for idx, (image, retouching, ground_truth) in enumerate(zip(images, retouchings, ground_truths)):
         total_width = image.shape[1] + retouching.shape[1] + ground_truth.shape[1]
         combined_image = Image.new("RGB", (total_width, image.shape[0]))
@@ -74,5 +75,5 @@ def image_saving(images, retouchings, ground_truths, index):
             img = Image.fromarray(np.uint8(image))
             combined_image.paste(img, (x_offset, 0))
             x_offset += img.width
-        combined_image.save(f"./imgs/{index}_{idx}.png", "PNG")
+        combined_image.save(os.path.join(path, f"{index}_{idx}.png"), "PNG")
 
