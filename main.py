@@ -12,7 +12,7 @@ import time
 def main(args):
     train_csv = pd.read_csv(os.path.join(args.csv_path, 'train.csv'))
     valid_csv = pd.read_csv(os.path.join(args.csv_path, 'valid.csv'))
-    test_csv = pd.read_csv(os.path.join(args.csv_path, 'test.csv')) if os.path.exists(os.path.join(args.csv_path, 'test .csv')) else valid_csv
+    test_csv = pd.read_csv(os.path.join(args.csv_path, 'test.csv')) if os.path.exists(os.path.join(args.csv_path, 'test.csv')) else valid_csv
     data_csv = {'train':train_csv, 'valid':valid_csv, 'test':test_csv}
 
     args.image_shape =  args.img_size if isinstance(args.img_size, tuple) else to_2tuple(args.img_size)
@@ -49,15 +49,15 @@ if __name__ == '__main__':
                         default=0, help='random seed')
     parser.add_argument('--csv_path', type=str, required=True, metavar="FILE", help='path to CSV file')
     parser.add_argument('--types', default='train', type=str, help='select types [train, test, predict]')
-    parser.add_argument('--gpus', default='0', type=str, help='GPU id to use.')
+    parser.add_argument('--gpus', default=[0], help='GPU id to use.')
     parser.add_argument('--log-path', default='./log', type=str, help='Write Log Path')
     parser.add_argument('--batch_size', type=int, default=1, help='Number of Batch Size')
-    parser.add_argument('--epoch', default=100, type=int, help='Number of Epoch')
+    parser.add_argument('--epoch', default=300, type=int, help='Number of Epoch')
     parser.add_argument('--workers', type=int, default=1, help='Number of Workers')
     parser.add_argument('--check_val', type=int, default=10, help='Check validation step')
     parser.add_argument('--check_loss', type=int, default=100, help='Check training loss')
 
-    parser.add_argument('--img_size', default=256, type=int, help='model input image size')
+    parser.add_argument('--img_size', default=512, type=int, help='model input image size')
     parser.add_argument('--in_channels', default=3, type=int, help='model in channels')
     parser.add_argument('--gp', default=32, type=int, help='model global priors')
     parser.add_argument('--hidden_channels', default=64, type=int, help='model hidden channels')
@@ -80,6 +80,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--model_path', default='./weights/model.pth', type=str, help='Model Path')
     parser.add_argument('--model_save_path', default='./weights', type=str, help='Model Save Path')
+    parser.add_argument('--img_save_path', default='./imgs', type=str, help='Result Img  Save Path')
     parser.add_argument('--pretrain', default=False, type=bool, help='Model Save Path')
     args = parser.parse_args()
     seed_everything(args.seed)
