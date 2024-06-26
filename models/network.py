@@ -37,9 +37,24 @@ class DualColorNetwork(nn.Module):
         super(DualColorNetwork, self).__init__()
         self.transitional_block = Transitional(in_channels=3, gp=32, hidden_channels=64)
         self.Base_block = Base(in_channels=3, gp=32, hidden_channels=64)
+        self._initialize_weights()
+
     def forward(self, x, infer=False):
         ycbcr = self.transitional_block(x)
         rgb = self.Base_block(ycbcr)
         if infer:
             return rgb
         return ycbcr, rgb
+    
+    def _initialize_weights(self):
+        def init_weights(m):
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+        self.apply(init_weights)
+                
