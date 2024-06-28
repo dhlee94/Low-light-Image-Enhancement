@@ -71,16 +71,21 @@ class GlobalPrior(nn.Module):
 class CPM(nn.Module):
     def __init__(self, in_channels=3, gp=32, hidden_channels=64, kernel_size=1, stride=1, padding=0):
         super(CPM, self).__init__()
-        self.fc1 = nn.Linear(in_channels, hidden_channels)
+        # self.fc1 = nn.Linear(in_channels, hidden_channels)
+        self.fc1 = nn.Conv2d(in_channels, hidden_channels, kernel_size=1, stride=1, padding=0)
         self.layer = Conv(in_channels=hidden_channels, out_channels=hidden_channels,
                           kernel_size=kernel_size, stride=stride, padding=padding)
         self.global_layer = GlobalPrior(in_channels=in_channels, hidden_channels=gp, out_channels=hidden_channels)
-        self.fc2 = nn.Linear(hidden_channels, in_channels)
+        # self.fc2 = nn.Linear(hidden_channels, in_channels)
+        self.fc2 = nn.Conv2d(hidden_channels, in_channels, kernel_size=1, stride=1, padding=0)
         self.in_channels= in_channels
 
     def forward(self, x):
         B, C, H, W  = x.shape
         gp = self.global_layer(x).view(B, -1, 1, 1)
-        x = self.fc1(x.reshape(B, C, -1).permute(0, 2, 1)).permute(0, 2, 1).reshape(B, -1, H, W)        
+        # x = self.fc1(x.reshape(B, C, -1).permute(0, 2, 1)).permute(0, 2, 1).reshape(B, -1, H, W)        
+        # x = self.layer((x+gp))
+        # return self.fc2(x.reshape(B, -1, H*W).permute(0, 2, 1)).permute(0, 2, 1).reshape(B, self.in_channels, H, W)
+        x = self.fc1(x)
         x = self.layer((x+gp))
-        return self.fc2(x.reshape(B, -1, H*W).permute(0, 2, 1)).permute(0, 2, 1).reshape(B, self.in_channels, H, W)
+        return self.fc2(x)
