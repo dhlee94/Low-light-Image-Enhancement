@@ -60,14 +60,13 @@ class Albumentations:
         """
         self.p = p
         self.transform = A.Compose([
-            A.OneOf([
-            A.Blur(p=1.0),
-            A.MedianBlur(p=1.0),
-            # A.CLAHE(p=1.0),
-            A.RandomGamma(p=1.0),
-            # A.ImageCompression(quality_lower=75, p=1.0)
-            ], p=0.5),
-            A.RandomBrightnessContrast(p=1.0, brightness_limit=(-0.2, 0.0), contrast_limit=(-0.0, 0.0), always_apply=True),            
+            # A.RandomCrop(width=1024, height=1024),
+            # A.OneOf([
+            # A.Blur(p=1.),
+            # A.MedianBlur(p=1.),
+            # A.MotionBlur(p=1.)], p=1.0),
+            # A.GaussNoise(p=0.5),
+            A.RandomBrightnessContrast(p=1., brightness_limit=(-0.0, 0.0), contrast_limit=(-0.5, -0.1), always_apply=True)
         ])
     def __call__(self, data):
         data = self.transform(image=data)

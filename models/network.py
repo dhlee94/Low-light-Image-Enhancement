@@ -39,8 +39,10 @@ class DualColorNetwork(nn.Module):
         self.Base_block = Base(in_channels=3, gp=32, hidden_channels=64)
         self._initialize_weights()
 
-    def forward(self, x, infer=False):
+    def forward(self, x, infer=False, only=False):
         ycbcr = self.transitional_block(x)
+        if only:
+            return ycbcr
         rgb = self.Base_block(ycbcr)
         if infer:
             return rgb
