@@ -5,6 +5,7 @@ import torch
 import torch.nn.functional as F
 from skimage import color
 from PIL import Image
+import torchvision.transforms as T
 
 def seed_everything(seed: int = 304):
     random.seed(seed)
@@ -33,8 +34,8 @@ def calculate_psnr(img1, img2):
 def calculate_ssim(img1, img2):
     C1 = 0.01 ** 2
     C2 = 0.03 ** 2
-    device = img1.get_device()
-    window = gaussian_filter(size=11, sigma=1.5).reshape(1, 1, 11, 11).expand(1, 3, 11, 11).to(torch.device(f"cuda:{device}"))
+    device = img1.device
+    window = gaussian_filter(size=11, sigma=1.5).reshape(1, 1, 11, 11).expand(1, 3, 11, 11).to(device)
     mu1 = F.conv2d(img1, window / 121, padding=5)
     mu2 = F.conv2d(img2, window / 121, padding=5)
     
@@ -99,8 +100,7 @@ def rotate_batch_with_labels(batch, labels):
 	return torch.cat(images)
 
 def rotate_batch(batch, label='expand'):
-    device = batch.get_device()
-    data_device = torch.device(f"cuda:{device}") if device >= 0 else torch.device("cpu")
+    device = batch.device
     if label == 'rand':
         labels = torch.randint(4, (len(batch),), dtype=torch.long)
     elif label == 'expand':
@@ -112,4 +112,44 @@ def rotate_batch(batch, label='expand'):
     else:
         assert isinstance(label, int)
         labels = torch.zeros((len(batch),), dtype=torch.long) + label
-    return rotate_batch_with_labels(batch, labels), labels.to(data_device)
+    return rotate_batch_with_labels(batch, labels), labels.to(device)
+
+def calculate_quality_diff(model, quality_model, input,
+                           input_low, input_high,  noise_high, noise_low, 
+                           blur, device):
+    high = []
+    low = []
+    B, C, H, W = input.shape
+    sigma1 = 40 + np.random.random() * 20
+    sigma2 = 5 + np.random.random() * 15
+    with torch.no_grad():
+        quality_model.eval()
+        if blur:
+            blur_high = T.GaussianBlur(kernel_size=(5, 5), sigma=(sigma1))(input).to(device)
+            blur_low = T.GaussianBlur(kernel_size=(5, 5), sigma=(sigma2))(input).to(device)
+            high.append(blur_high)
+            low.append(blur_low)
+        if input_low is not None and input_high is not None:
+            high.append(input_high)
+            low.append(input_low)
+        if noise_high is not None and noise_low is not None:
+            high.append(noise_high)
+            low.append(noise_low)
+        length = len(high)
+        high = torch.cat(high, dim=0)
+        low  = torch.cat(low, dim=0)
+        high_ycbcr = model(high, only=True)
+        low_ycbcr = model(low, only=True)
+        quality_high, _ = quality_model(high, high_ycbcr, infer=True)
+        quality_low, _ = quality_model(low, low_ycbcr, infer=True)
+        high = high.reshape(-1, B, C, H, W).permute(1, 0, 2, 3, 4)
+        low = low.reshape(-1, B, C, H, W).permute(1, 0, 2, 3, 4)
+        high_ycbcr = high_ycbcr.reshape(-1, B, C, H, W).permute(1, 0, 2, 3, 4)
+        low_ycbcr = low_ycbcr.reshape(-1, B, C, H, W).permute(1, 0, 2, 3, 4)
+        diff = torch.abs(quality_high - quality_low).reshape(length, B, -1).sum(dim=-1).permute(1, 0)
+        index = [torch.argmax(data).item() for data in diff]
+        high_input = torch.stack([high[idx, index[idx], ...] for idx in range(B)] , dim=0)
+        low_input = torch.stack([low[idx, index[idx], ...] for idx in range(B)], dim=0)
+        high_ycbcr = torch.stack([high_ycbcr[idx, index[idx], ...] for idx in range(B)] , dim=0)
+        low_ycbcr = torch.stack([low_ycbcr[idx, index[idx], ...] for idx in range(B)], dim=0)
+    return high_input.detach(), low_input.detach(), high_ycbcr.detach(), low_ycbcr.detach()
