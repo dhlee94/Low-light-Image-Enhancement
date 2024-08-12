@@ -28,25 +28,20 @@ class HuberLoss(nn.Module):
         return loss.mean()
     
 class GroupContrastiveLoss(nn.Module):
-	def __init__(self, temperature=0.5):
+	def __init__(self, batch_size, temperature=0.5):
 		super().__init__()
 		self.register_buffer("temperature", torch.tensor(temperature))
-
+		self.register_buffer("negatives_mask", (~torch.eye(batch_size * 2, batch_size * 2, dtype=bool)).float())
+		self.register_buffer("positives_mask", (~torch.eye(batch_size * 1, batch_size * 1, dtype=bool)).float())
+            
 	def forward(self, emb_i, emb_j):
 		"""
 		emb_i and emb_j are batches of embeddings, where corresponding indices are pairs
 		z_i, z_j as per SimCLR paper
 		"""
 		batch_size = emb_i.shape[0]
-		device = emb_i.get_device()
-		if device>=0:
-			negatives_mask = (~torch.eye(batch_size * 2, batch_size * 2, dtype=bool)).float().to(torch.device(f"cuda:{device}"))
-			positives_mask = (~torch.eye(batch_size * 1, batch_size * 1, dtype=bool)).float().to(torch.device(f"cuda:{device}"))
-		else:
-			negatives_mask = (~torch.eye(batch_size * 2, batch_size * 2, dtype=bool)).float().to(torch.device("cpu"))
-			positives_mask = (~torch.eye(batch_size * 1, batch_size * 1, dtype=bool)).float().to(torch.device("cpu"))
-		negatives_mask[:len(emb_i), :len(emb_j)]=False
-		negatives_mask[len(emb_i):, len(emb_j):] = False
+		self.negatives_mask[:len(emb_i), :len(emb_j)] = False
+		self.negatives_mask[len(emb_i):, len(emb_j):] = False
 
 		z_i = F.normalize(emb_i, dim=1)
 		z_j = F.normalize(emb_j, dim=1)
@@ -57,28 +52,18 @@ class GroupContrastiveLoss(nn.Module):
 		pos_similarity_matrix = similarity_matrix[:len(emb_i), :len(emb_j)]
 		neg_similarity_matrix = similarity_matrix[len(emb_i):, len(emb_j):]
 
-		pos_similarity_matrix = pos_similarity_matrix * positives_mask
+		pos_similarity_matrix = pos_similarity_matrix * self.positives_mask
 		sim_ij=torch.sum(pos_similarity_matrix,dim=1)/(len(neg_similarity_matrix)-1)
 
-		neg_similarity_matrix = neg_similarity_matrix * positives_mask
+		neg_similarity_matrix = neg_similarity_matrix * self.positives_mask
 		sim_ji = torch.sum(neg_similarity_matrix, dim=1)/(len(neg_similarity_matrix)-1)
 
 		positives = torch.cat([sim_ij, sim_ji], dim=0)
 
 		nominator = torch.exp(positives / self.temperature)
-		denominator = negatives_mask * torch.exp(similarity_matrix / self.temperature)
+		denominator = self.negatives_mask * torch.exp(similarity_matrix / self.temperature)
 
 		loss_partial = torch.sum(nominator / (nominator + torch.sum(denominator, dim=1)))/ (2 * batch_size)
 		loss = -torch.log(loss_partial)
 
 		return loss
-
-def calculate_rank_loss(features, high_distorted_features, low_distorted_features):
-    d_high = torch.norm(features - high_distorted_features, dim=1)
-    d_low = torch.norm(features - low_distorted_features, dim=1)
-    
-    probabilities = torch.sigmoid(d_high - d_low)
-    target = torch.ones_like(probabilities)
-    
-    loss = F.binary_cross_entropy(probabilities, target)
-    return loss
