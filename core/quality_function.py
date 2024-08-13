@@ -17,15 +17,18 @@ class Quality_lightning(pl.LightningModule):
         super().__init__()
         self.args = args
         self.model = DualColorNetwork(in_channels=self.args.in_channels, gp=self.args.gp, hidden_channels=self.args.hidden_channels)
-        self.quality_model = QualityNetwork(image_size=args.img_size, patch_size=args.patch_size, dim=args.dim, depth=args.depth, heads=args.heads, 
-                                            channels=args.in_channels, dim_head=args.dim_head, drop_out=args.drop_out, emb_dropout=args.emb_dropout)
-        self.select_quality_model = QualityNetwork(image_size=args.img_size, patch_size=args.patch_size, dim=args.dim, depth=args.depth, heads=args.heads, 
-                                                   channels=args.in_channels, dim_head=args.dim_head, drop_out=args.drop_out, emb_dropout=args.emb_dropout)
+        self.quality_model = QualityNetwork(image_size=args.img_size, patch_size=args.patch_size, dim=args.dim, encoder_depth=args.encoder_depth, decoder_depth=args.decoder_depth, 
+                                            heads=args.heads, channels=args.in_channels, drop_out=args.drop_out, emb_dropout=args.emb_dropout)
+        self.select_quality_model = QualityNetwork(image_size=args.img_size, patch_size=args.patch_size, dim=args.dim, encoder_depth=args.encoder_depth, decoder_depth=args.decoder_depth,
+                                                   heads=args.heads, channels=args.in_channels, drop_out=args.drop_out, emb_dropout=args.emb_dropout)
         for param in self.select_quality_model.parameters():
             param.requires_grad = False
         assert self.args.dual_pretrain==True, "have to pretrain dual color network model"
         if self.args.dual_pretrain:
             self.model.load_state_dict(torch.load(args.dual_model_path))
+        if self.args.pretrain:
+            self.quality_model.load_state_dict(torch.load(args.model_path))
+            self.select_quality_model.load_state_dict(torch.load(args.model_path))
         self.model.eval()
         self.select_quality_model.eval()
         self.weight = args.loss_weights
