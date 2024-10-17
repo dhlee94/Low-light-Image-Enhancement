@@ -200,19 +200,18 @@ class QualityNetwork(nn.Module):
                            heads, channels, drop_out, emb_dropout)
         self.linear = nn.Linear(in_features=int(self.encoder.num_patches), out_features=4)
         self.quality_linear = nn.Linear(in_features=int(self.encoder.num_patches), out_features=1)
-        self.sigmoid = nn.Sigmoid()
         self._initialize_weights()
 
     def forward(self, x, ycbcr, batch_size=1, infer=False):    
         assert ycbcr is not None, "have to input YCBCR image into the model"
         if infer:
             x = self.encoder(x, ycbcr)
-            return self.quality_linear(x), self.sigmoid(x)
+            return self.quality_linear(x), x
         else:
             x = self.encoder(x, ycbcr)
             quality = x[:3*batch_size, :]
             rotate = x[3*batch_size:, :]
-            return self.quality_linear(quality), self.sigmoid(quality), self.linear(rotate)
+            return self.quality_linear(quality), quality, self.linear(rotate)
 
     def _initialize_weights(self):
         def init_weights(m):

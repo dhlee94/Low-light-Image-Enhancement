@@ -2,13 +2,19 @@ import torch.nn as nn
 import torch
 
 class QualityRegression(nn.Module):
-    def __init__(self, in_channels):
-        self.brightness = nn.Linear(in_channels, 1)
-        self.focus = nn.Linear(in_channels, 1)
+    def __init__(self, in_channels, brightness=None, focus=None):
+        self.quality = nn.Linear(in_channels, 1)
+        if brightness:
+            self.brightness = nn.Linear(in_channels, 1)
+        if focus:
+            self.focus = nn.Linear(in_channels, 1)
         self._initialize_weights()
 
     def forward(self, x):
-        return self.brightness(x), self.focus(x)
+        if self.brightness and self.focus:
+            return self.quality(x), self.brightness(x), self.focus(x)
+        else:
+            return self.quality(x)
 
     def _initialize_weights(self):
         def init_weights(m):

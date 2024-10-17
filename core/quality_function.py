@@ -21,7 +21,6 @@ class Quality_lightning(pl.LightningModule):
                                             heads=args.heads, channels=args.in_channels, drop_out=args.drop_out, emb_dropout=args.emb_dropout)
         self.select_quality_model = QualityNetwork(image_size=args.img_size, patch_size=args.patch_size, dim=args.dim, encoder_depth=args.encoder_depth, decoder_depth=args.decoder_depth,
                                                    heads=args.heads, channels=args.in_channels, drop_out=args.drop_out, emb_dropout=args.emb_dropout)
-        
         assert self.args.dual_pretrain==True, "have to pretrain dual color network model"
         if self.args.dual_pretrain:
             self.model.load_state_dict(torch.load(args.dual_model_path))
@@ -45,12 +44,16 @@ class Quality_lightning(pl.LightningModule):
                        high, high_quality, rotate, labels):
         contrastive_loss = GroupContrastiveLoss(batch_size=result.shape[0],temperature=self.args.temperature).to(self.device)
         con_loss = contrastive_loss(low, high)
-        target = torch.ones(result.shape[0]).to(self.device)
-        dis_high = self.calculate_distance(high_quality, result_quality)
-        dis_low = self.calculate_distance(low_quality, result_quality)
-        rank_loss = self.rank_entropy(torch.sigmoid(dis_high - dis_low), target)
+        target_distance = torch.ones(result.shape[0]).to(self.device)
+        dis_high = self.calculate_distance(high, result)
+        dis_low = self.calculate_distance(low, result)
+        distance_loss = self.rank_entropy(torch.sigmoid(dis_high - dis_low), target_distance)
+        target = torch.ones(size=(result.shape[0], 1)).to(self.device)
+        diff_high = high_quality - result_quality
+        diff_low = low_quality - result_quality
+        rank_loss = self.rank_entropy(torch.sigmoid(diff_high - diff_low), target)
         rotate_loss = self.entropy(rotate, labels)
-        return con_loss, rank_loss, rotate_loss
+        return con_loss, rank_loss, rotate_loss, distance_loss
 
     def forward(self, input, input_low=None, input_high=None, noise_high=None, noise_low=None, rotation=False, infer=False, blur=True):
         self.model.eval()
@@ -80,7 +83,7 @@ class Quality_lightning(pl.LightningModule):
         result, result_quality, high_result, high_quality, low_result, low_quality, rotate_result, labels = self(input, input_low, input_high, 
                                                                                                                 noise_high, noise_low, rotation=True, blur=True)
 
-        contrastive_loss, rank_loss, rotate_loss = self._loss_function(result, result_quality, 
+        contrastive_loss, rank_loss, rotate_loss, distance_loss = self._loss_function(result, result_quality, 
                                                                        low_result, low_quality, 
                                                                        high_result, high_quality, 
                                                                        rotate_result, labels)
@@ -88,9 +91,9 @@ class Quality_lightning(pl.LightningModule):
         if batch_idx%self.args.check_loss==0:
             print(f"contrastive_loss :{contrastive_loss:.4f} rank_loss : {rank_loss:.4f} rotate_loss : {rotate_loss:.4f}")
         if rotate_loss is not None:
-            loss = self.weight[0]*contrastive_loss + self.weight[1]*rank_loss + self.weight[2]*rotate_loss
+            loss = self.weight[0]*contrastive_loss + self.weight[1]*rank_loss + self.weight[2]*rotate_loss + self.weight[3]*distance_loss
         else:
-            loss = self.weight[0]*contrastive_loss + self.weight[1]*rank_loss    
+            loss = self.weight[0]*contrastive_loss + self.weight[1]*rank_loss + self.weight[3]*distance_loss
         return loss
 
     def on_train_batch_start(self, batch, batch_idx, dataloader_idx):
@@ -101,26 +104,29 @@ class Quality_lightning(pl.LightningModule):
         self.whole_contrastive = []
         self.whole_rank = []
         self.whole_rotate = []
+        self.whole_dis = []
 
     def validation_step(self, batch, batch_idx):
         input, input_low, input_high, noise_high, noise_low = batch
         result, result_quality, high_result, high_quality, low_result, low_quality, rotate_result, labels = self(input, input_low, input_high, 
                                                                                                                 noise_high, noise_low, rotation=True, blur=True)
 
-        contrastive_loss, rank_loss, rotate_loss = self._loss_function(result, result_quality, 
+        contrastive_loss, rank_loss, rotate_loss, distance_loss = self._loss_function(result, result_quality, 
                                                                        low_result, low_quality, 
                                                                        high_result, high_quality, 
                                                                        rotate_result, labels)
         self.whole_contrastive.append(torch.mean(contrastive_loss).detach().cpu())
         self.whole_rank.append(torch.mean(rank_loss).detach().cpu())
         self.whole_rotate.append(torch.mean(rotate_loss).detach().cpu())
-    
+        self.whole_dis.append(torch.mean(distance_loss).detach().cpu())
+
     def validation_epoch_end(self, outputs):
         table = PrettyTable()
         table.field_names = ["Metric", "Value"]
         table.add_row(["loss_contrastive", np.mean(np.array(self.whole_contrastive))])
         table.add_row(["loss_rank", np.mean(np.array(self.whole_rank))])
         table.add_row(["loss_rotate", np.mean(np.array(self.whole_rotate))])
+        table.add_row(["loss_dis", np.mean(np.array(self.whole_dis))])
         print(table)
         self.save()
     
@@ -128,19 +134,21 @@ class Quality_lightning(pl.LightningModule):
         self.whole_contrastive = []
         self.whole_rank = []
         self.whole_rotate = []
+        self.whole_dis = []
 
     def test_step(self, batch, batch_idx):
         input, input_low, input_high, noise_high, noise_low = batch
         result, result_quality, high_result, high_quality, low_result, low_quality, rotate_result, labels = self(input, input_low, input_high, 
                                                                                                                 noise_high, noise_low, rotation=True, blur=True)
 
-        contrastive_loss, rank_loss, rotate_loss = self._loss_function(result, result_quality, 
+        contrastive_loss, rank_loss, rotate_loss, distance_loss = self._loss_function(result, result_quality, 
                                                                        low_result, low_quality, 
                                                                        high_result, high_quality, 
                                                                        rotate_result, labels)
         self.whole_contrastive.append(torch.mean(contrastive_loss).detach().cpu())
         self.whole_rank.append(torch.mean(rank_loss).detach().cpu())
         self.whole_rotate.append(torch.mean(rotate_loss).detach().cpu())
+        self.whole_dis.append(torch.mean(distance_loss).detach().cpu())
     
     def test_epoch_end(self, outputs):
         table = PrettyTable()
@@ -148,6 +156,7 @@ class Quality_lightning(pl.LightningModule):
         table.add_row(["loss_contrastive", np.mean(np.array(self.whole_contrastive))])
         table.add_row(["loss_rank", np.mean(np.array(self.whole_rank))])
         table.add_row(["loss_rotate", np.mean(np.array(self.whole_rotate))])
+        table.add_row(["loss_dis", np.mean(np.array(self.whole_dis))])
         print(table)
     
     def predict_step(self, batch, batch_idx):
