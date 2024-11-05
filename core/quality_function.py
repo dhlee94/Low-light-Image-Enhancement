@@ -185,5 +185,5 @@ class Quality_lightning(pl.LightningModule):
     def update_ema(self):
         with torch.no_grad():
             for current, previous in zip(self.quality_model.parameters(), self.select_quality_model.parameters()):
-                new_weight = self.gamma*current + (1-self.gamma)*previous
+                new_weight = self.gamma*previous + (1-self.gamma)*current
                 previous.copy_(new_weight.detach())
