@@ -89,7 +89,7 @@ class Quality_lightning(pl.LightningModule):
                                                                        rotate_result, labels)
         
         if batch_idx%self.args.check_loss==0:
-            print(f"contrastive_loss :{contrastive_loss:.4f} rank_loss : {rank_loss:.4f} rotate_loss : {rotate_loss:.4f}")
+            print(f"contrastive_loss :{contrastive_loss:.4f} rank_loss : {rank_loss:.4f} rotate_loss : {rotate_loss:.4f} distance_loss : {distance_loss:.4f}")
         if rotate_loss is not None:
             loss = self.weight[0]*contrastive_loss + self.weight[1]*rank_loss + self.weight[2]*rotate_loss + self.weight[3]*distance_loss
         else:
@@ -183,6 +183,7 @@ class Quality_lightning(pl.LightningModule):
         print(f'Model save epoch : {self.current_epoch}')
 
     def update_ema(self):
-        for current, previous in zip(self.quality_model.parameters(), self.select_quality_model.parameters()):
-            new_weight = self.gamma*previous + (1-self.gamma)*current
-            previous.copy_(new_weight.detach())
+        with torch.no_grad():
+            for current, previous in zip(self.quality_model.parameters(), self.select_quality_model.parameters()):
+                new_weight = self.gamma*current + (1-self.gamma)*previous
+                previous.copy_(new_weight.detach())
