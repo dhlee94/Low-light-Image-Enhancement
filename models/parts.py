@@ -51,7 +51,8 @@ class Conv(nn.Module):
 class GlobalPrior(nn.Module):
     def __init__(self, in_channels=3, hidden_channels=32, out_channels=64):
         super(GlobalPrior, self).__init__()
-        self.downsample = Conv(in_channels=in_channels, out_channels=in_channels, kernel_size=7, stride=4, padding=3)
+        # self.downsample = Conv(in_channels=in_channels, out_channels=in_channels, kernel_size=7, stride=4, padding=3)
+        self.downsample = nn.MaxPool2d(kernel_size=7, stride=4, padding=3)
         self.conv1 = Conv(in_channels=in_channels, out_channels=hidden_channels)
         self.conv2 = Conv(in_channels=hidden_channels, out_channels=hidden_channels, kernel_size=3, stride=1, padding=1)
         self.fc = nn.Linear(hidden_channels*3, out_channels)
