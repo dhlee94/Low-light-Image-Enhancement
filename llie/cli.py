@@ -12,16 +12,18 @@ from typing import Sequence
 TASKS = ("dual", "quality")
 MODES = ("train", "test", "predict")
 
-# Defaults that differ between the two training tasks (same values as the
-# pre-refactor main.py / quality_main.py, so existing experiments are unchanged).
+# Defaults that differ between the two training tasks. "dual" follows the
+# DualCSNet paper (Sci. Rep. 2023): loss weights 0.01 / 1 / 0.1 / 0.1, Adam betas
+# (0.9, 0.99) and a constant learning rate of 5e-5 (no schedule is given in the paper).
 TASK_DEFAULTS = {
     "dual": dict(
         batch_size=1,
         img_size=512,
-        loss_weights=[0.01, 1.0, 0.01, 0.1],
+        loss_weights=[0.01, 1.0, 0.1, 0.1],
         optim="AdamW",
         lr=5e-5,
-        scheduler="CosineWarmUp",
+        betas=[0.9, 0.99],
+        scheduler="none",
         eta_scheduler=5e-5,
         model_path="./weights/model.pth",
     ),
@@ -64,7 +66,7 @@ def _add_optim_args(parser: argparse.ArgumentParser) -> None:
     g.add_argument("--lr", type=float, help="learning rate")
     g.add_argument("--momentum", type=float, default=0.95, help="SGD momentum")
     g.add_argument("--eps", type=float, default=1e-8, help="AdamW eps")
-    g.add_argument("--betas", type=float, nargs=2, default=[0.9, 0.999], help="AdamW betas")
+    g.add_argument("--betas", type=float, nargs=2, default=[0.9, 0.999], help="AdamW betas (dual default: paper's 0.9 0.99)")
     g.add_argument("--weight_decay", type=float, default=0.0, help="AdamW weight decay (the paper uses plain Adam)")
 
     g = parser.add_argument_group("scheduler")
