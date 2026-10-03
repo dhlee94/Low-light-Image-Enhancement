@@ -71,18 +71,18 @@ class GlobalPrior(nn.Module):
 
 
 class CPM(nn.Module):
-    """Color prediction module: residual per-pixel MLP conditioned on a global prior."""
+    """Color prediction module: x + H(ReLU(G(x) + v)), a residual per-pixel MLP whose
+    hidden features are shifted by the global prior v (paper: H(G(x) + v))."""
 
-    def __init__(self, in_channels=3, gp=32, hidden_channels=64, kernel_size=1, stride=1, padding=0):
+    def __init__(self, in_channels=3, gp=32, hidden_channels=64):
         super().__init__()
-        self.fc1 = nn.Conv2d(in_channels, hidden_channels, kernel_size=1)
-        self.layer = Conv(in_channels=hidden_channels, out_channels=hidden_channels,
-                          kernel_size=kernel_size, stride=stride, padding=padding)
-        self.global_layer = GlobalPrior(in_channels=in_channels, hidden_channels=gp, out_channels=hidden_channels)
-        self.fc2 = nn.Conv2d(hidden_channels, in_channels, kernel_size=1)
+        self.fc1 = nn.Conv2d(in_channels, hidden_channels, kernel_size=1)  # G
+        self.global_layer = GlobalPrior(in_channels=in_channels, hidden_channels=gp, out_channels=hidden_channels)  # F
+        self.fc2 = nn.Conv2d(hidden_channels, in_channels, kernel_size=1)  # H
 
     def forward(self, x):
         gp = self.global_layer(x)[:, :, None, None]  # (B, hidden, 1, 1), broadcast over pixels
-        # Residual: with fc2 zero-initialized the module starts as the identity, so
+        # ReLU keeps the per-pixel mapping non-linear (otherwise each CPM is an affine colour
+        # transform). Residual: with fc2 zero-initialized the module starts as the identity, so
         # six stacked CPMs no longer blow the output up to tens at initialization.
-        return x + self.fc2(self.layer(self.fc1(x) + gp))
+        return x + self.fc2(F.relu(self.fc1(x) + gp))

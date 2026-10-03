@@ -31,6 +31,11 @@ def test_dual_color_network_starts_as_identity():
     assert torch.allclose(rgb, x, atol=1e-2)  # CSC matrices are rounded, not exact inverses
 
 
+def test_dual_color_network_matches_paper_size():
+    # Paper reports 92,882 parameters; the extra 64->64 hidden conv per CPM made it 121,170.
+    assert sum(p.numel() for p in DualColorNetwork().parameters()) == 96210
+
+
 # ---- paired (real low-light) data ---------------------------------------------------
 def test_paired_dataset_uses_real_low_light_input(tmp_path):
     rng = np.random.default_rng(0)
