@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+weights/
+log/
+imgs/
+predictions/
+regression_result.csv

@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llie"
+version = "0.1.0"
+description = "Low-light image enhancement (DualColorNetwork) and a self-supervised quality network"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "torch>=1.13",
+    "torchvision>=0.14",
+    "pytorch-lightning>=1.9,<3",
+    "numpy",
+    "pandas",
+    "opencv-python",
+    "Pillow",
+    "scikit-learn",
+    "tqdm",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "scikit-image"]
+
+[tool.setuptools.packages.find]
+include = ["llie*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Lets `pytest` import llie from a checkout without `pip install -e .`.
+pythonpath = ["."]
