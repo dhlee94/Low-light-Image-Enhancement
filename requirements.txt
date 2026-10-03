@@ -1,0 +1,4 @@
+# Runtime dependencies are declared in pyproject.toml; this installs them plus
+# the package itself in editable mode (required by scripts/).
+# Tested with torch 2.8 / torchvision 0.23 / pytorch-lightning 1.9.5.
+-e .[dev]
