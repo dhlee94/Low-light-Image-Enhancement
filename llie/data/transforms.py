@@ -54,4 +54,7 @@ class ToTensor:
 
 
 def build_transform(size, interpolation=cv2.INTER_LINEAR, scaleup=False, stretch=True):
+    """``size=None`` keeps the original resolution (only converts to a tensor)."""
+    if size is None:
+        return ToTensor()
     return Compose([Resize(size, interpolation=interpolation, scaleup=scaleup, stretch=stretch), ToTensor()])

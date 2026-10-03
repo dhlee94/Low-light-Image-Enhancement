@@ -71,7 +71,7 @@ class GlobalPrior(nn.Module):
 
 
 class CPM(nn.Module):
-    """Color processing module: per-pixel MLP conditioned on a global prior."""
+    """Color prediction module: residual per-pixel MLP conditioned on a global prior."""
 
     def __init__(self, in_channels=3, gp=32, hidden_channels=64, kernel_size=1, stride=1, padding=0):
         super().__init__()
@@ -83,4 +83,6 @@ class CPM(nn.Module):
 
     def forward(self, x):
         gp = self.global_layer(x)[:, :, None, None]  # (B, hidden, 1, 1), broadcast over pixels
-        return self.fc2(self.layer(self.fc1(x) + gp))
+        # Residual: with fc2 zero-initialized the module starts as the identity, so
+        # six stacked CPMs no longer blow the output up to tens at initialization.
+        return x + self.fc2(self.layer(self.fc1(x) + gp))

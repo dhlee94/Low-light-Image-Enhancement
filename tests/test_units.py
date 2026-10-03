@@ -7,8 +7,10 @@ import torch
 from PIL import Image
 
 from llie.training.losses import GroupContrastiveLoss
-from llie.data.dataset import QualityImageDataset
+from llie.data.dataset import ImageDataset, QualityImageDataset
 from llie.data.transforms import build_transform
+from llie.models.dual_color import DualColorNetwork
+from llie.models.parts import RGB2YCbCr
 from llie.models.quality import QualityNetwork
 from llie.utils.metrics import calculate_delta_e, calculate_psnr, calculate_ssim, rgb_to_lab
 from llie.training.pairing import select_hardest_pair
@@ -18,6 +20,32 @@ from llie.training.rotation import rotate_batch
 def _random_images(b=2, size=32, seed=0):
     g = torch.Generator().manual_seed(seed)
     return torch.rand(b, 3, size, size, generator=g)
+
+
+# ---- DualColorNetwork init --------------------------------------------------------
+def test_dual_color_network_starts_as_identity():
+    # Without the CPM residual + zero-init fc2 the initial output ranged about -24..10.
+    x = _random_images()
+    ycbcr, rgb = DualColorNetwork()(x)
+    assert torch.allclose(ycbcr, RGB2YCbCr()(x), atol=1e-6)
+    assert torch.allclose(rgb, x, atol=1e-2)  # CSC matrices are rounded, not exact inverses
+
+
+# ---- paired (real low-light) data ---------------------------------------------------
+def test_paired_dataset_uses_real_low_light_input(tmp_path):
+    rng = np.random.default_rng(0)
+    low, high = tmp_path / "low.png", tmp_path / "high.png"
+    Image.fromarray(rng.integers(0, 60, (40, 48, 3), dtype=np.uint8)).save(low)
+    Image.fromarray(rng.integers(0, 255, (40, 48, 3), dtype=np.uint8)).save(high)
+    to_tensor = build_transform(None)  # original resolution
+
+    item = ImageDataset([str(high)], to_tensor, input_paths=[str(low)])[0]
+    torch.testing.assert_close(item["input"], to_tensor(np.array(Image.open(low))))
+    torch.testing.assert_close(item["target_rgb"], to_tensor(np.array(Image.open(high))))
+    assert item["input"].shape == (3, 40, 48)
+
+    pred = ImageDataset([str(high)], to_tensor, input_paths=[str(low)], infer=True)[0]
+    assert pred["path"] == str(low)
 
 
 # ---- metrics (B3) -------------------------------------------------------------

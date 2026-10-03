@@ -62,3 +62,21 @@ def test_dual_then_quality_pipeline(csv_dir, tmp_path):
     train.main([*quality, "--mode", "predict", "--model_path", str(weights / "quality_model.pth"), *common])
     scores = pd.read_csv(tmp_path / "pred" / "quality_scores.csv")
     assert len(scores) == 6 and scores["score"].notna().all()
+
+
+def test_dual_paired_original_resolution(tmp_path):
+    rng = np.random.default_rng(0)
+    rows = []
+    for i in range(3):
+        low, high = tmp_path / f"low{i}.png", tmp_path / f"high{i}.png"
+        Image.fromarray(rng.integers(0, 60, (24, 36, 3), dtype=np.uint8)).save(low)
+        Image.fromarray(rng.integers(0, 255, (24, 36, 3), dtype=np.uint8)).save(high)
+        rows.append({"image": str(high), "input": str(low)})
+    for split in ("train", "valid"):
+        pd.DataFrame(rows).to_csv(tmp_path / f"{split}.csv", index=False)
+
+    common = [arg for arg in _common(tmp_path, tmp_path)]
+    common[common.index("--img_size") + 1] = "0"
+    train.main(["--task", "dual", *common])
+    train.main(["--task", "dual", "--mode", "predict", "--model_path", str(tmp_path / "weights" / "model.pth"), *common])
+    assert sorted(os.listdir(tmp_path / "pred" / "enhanced")) == ["low0.png", "low1.png", "low2.png"]

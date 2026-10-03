@@ -65,7 +65,7 @@ def _add_optim_args(parser: argparse.ArgumentParser) -> None:
     g.add_argument("--momentum", type=float, default=0.95, help="SGD momentum")
     g.add_argument("--eps", type=float, default=1e-8, help="AdamW eps")
     g.add_argument("--betas", type=float, nargs=2, default=[0.9, 0.999], help="AdamW betas")
-    g.add_argument("--weight_decay", type=float, default=0.95, help="AdamW weight decay")
+    g.add_argument("--weight_decay", type=float, default=0.0, help="AdamW weight decay (the paper uses plain Adam)")
 
     g = parser.add_argument_group("scheduler")
     g.add_argument("--scheduler", choices=("LambdaLR", "CosineWarmUp", "none"))
@@ -83,7 +83,8 @@ def build_parser(task: str) -> argparse.ArgumentParser:
     p.add_argument("--task", choices=TASKS, required=True, help="dual: enhancement network / quality: quality network")
     p.add_argument("--mode", choices=MODES, default="train")
     p.add_argument("--csv_path", required=True,
-                   help="directory with train.csv / valid.csv [/ test.csv]; each has an 'image' column")
+                   help="directory with train.csv / valid.csv [/ test.csv]; each has an 'image' column "
+                        "and, for paired data, an 'input' column of low-light images")
     p.add_argument("--seed", type=int, default=0)
 
     g = p.add_argument_group("runtime")
@@ -99,8 +100,10 @@ def build_parser(task: str) -> argparse.ArgumentParser:
     g.add_argument("--log_path", "--log-path", default="./log", help="CSV log directory")
 
     g = p.add_argument_group("data")
-    g.add_argument("--img_size", type=int, help="square input size")
-    g.add_argument("--img_mode", choices=("L", "RGB"), default="L",
+    g.add_argument("--img_size", type=int,
+                   help="square input size; 0 keeps the original resolution (dual task, batch_size 1 "
+                        "unless all images share one size)")
+    g.add_argument("--img_mode", choices=("L", "RGB"), default="RGB",
                    help="L: images are converted to grayscale (replicated to 3 channels)")
 
     g = p.add_argument_group("weights / outputs")
@@ -137,7 +140,11 @@ def build_parser(task: str) -> argparse.ArgumentParser:
 
 def validate_args(args: argparse.Namespace) -> None:
     """Fail fast on combinations that would otherwise crash deep inside training."""
+    if args.img_size < 0:
+        raise ValueError(f"--img_size must be >= 0, got {args.img_size}")
     if args.task == "quality":
+        if args.img_size == 0:
+            raise ValueError("--img_size 0 (original resolution) is only supported for --task dual")
         if args.img_size % args.patch_size:
             raise ValueError(f"--img_size ({args.img_size}) must be divisible by --patch_size ({args.patch_size})")
         if args.dim % 2:
@@ -157,5 +164,5 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     known, _ = pre.parse_known_args(argv)
     args = build_parser(known.task or "dual").parse_args(argv)
     validate_args(args)
-    args.img_shape = (args.img_size, args.img_size)
+    args.img_shape = (args.img_size, args.img_size) if args.img_size else None
     return args

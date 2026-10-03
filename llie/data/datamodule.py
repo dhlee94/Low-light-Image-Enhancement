@@ -12,11 +12,14 @@ _DATASETS = {"dual": ImageDataset, "quality": QualityImageDataset}
 class DataModule(pl.LightningDataModule):
     """Builds loaders from per-split DataFrames with an ``image`` path column.
 
+    An optional ``input`` column (dual task) gives the paired low-light image of
+    each ``image``; without it the input is synthesized by darkening.
+
     csvs: {"train", "valid", "test"} -> DataFrame. Predict mode reads "test".
     Validation/test degradations are seeded so every evaluation sees the same inputs.
     """
 
-    def __init__(self, csvs, task, img_size=(512, 512), img_mode="L", batch_size=4, num_workers=0,
+    def __init__(self, csvs, task, img_size=(512, 512), img_mode="RGB", batch_size=4, num_workers=0,
                  seed=0, darken_range=(0.5, 0.9), interpolation=cv2.INTER_LINEAR):
         super().__init__()
         if task not in _DATASETS:
@@ -32,11 +35,15 @@ class DataModule(pl.LightningDataModule):
 
     def build_dataset(self, split):
         csv_key = {"train": "train", "val": "valid", "test": "test", "predict": "test"}[split]
-        paths = self.csvs[csv_key]["image"].tolist()
+        df = self.csvs[csv_key]
+        paths = df["image"].tolist()
         dataset_cls = ImageDataset if split == "predict" else _DATASETS[self.task]
+        kwargs = {}
+        if dataset_cls is ImageDataset and "input" in df.columns:
+            kwargs["input_paths"] = df["input"].tolist()
         return dataset_cls(
             paths, self.transform, img_mode=self.img_mode, infer=(split == "predict"),
-            darken_range=self.darken_range, seed=None if split == "train" else self.seed)
+            darken_range=self.darken_range, seed=None if split == "train" else self.seed, **kwargs)
 
     def _loader(self, split):
         # The contrastive loss needs >= 2 samples, so drop a trailing batch of 1 when training.

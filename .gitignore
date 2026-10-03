@@ -5,3 +5,5 @@ log/
 imgs/
 predictions/
 regression_result.csv
+data/
+log_*.txt
