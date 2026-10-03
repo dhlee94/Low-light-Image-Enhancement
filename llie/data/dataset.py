@@ -1,6 +1,8 @@
 """Datasets. Every item is a dict of (3, H, W) float tensors in [0, 1].
 
 ImageDataset (dual task):    {"input", "target_ycbcr", "target_rgb"}
+    input is the image darkened synthetically, or the paired low-light image
+    when ``input_paths`` is given (e.g. LOL).
 QualityImageDataset:         {"input", "jpeg_high", "jpeg_low", "noise_high", "noise_low"}
 Either with infer=True:      {"input", "path"}
 
@@ -32,11 +34,16 @@ def apply_mode(arr, img_mode):
 
 
 class ImageDataset(Dataset):
-    """Low-light pairs: input is the image darkened by a random factor, target is the image."""
+    """Low-light pairs: target is the image at ``paths[idx]``; input is ``input_paths[idx]``
+    if given, otherwise the target darkened by a random factor."""
 
-    def __init__(self, paths: Sequence[str], transform, img_mode="L", infer=False,
-                 darken_range: Tuple[float, float] = (0.5, 0.9), seed: Optional[int] = None):
+    def __init__(self, paths: Sequence[str], transform, img_mode="RGB", infer=False,
+                 darken_range: Tuple[float, float] = (0.5, 0.9), seed: Optional[int] = None,
+                 input_paths: Optional[Sequence[str]] = None):
+        if input_paths is not None and len(input_paths) != len(paths):
+            raise ValueError(f"{len(input_paths)} input paths for {len(paths)} target paths")
         self.paths = list(paths)
+        self.input_paths = None if input_paths is None else list(input_paths)
         self.transform = transform
         self.img_mode = img_mode
         self.infer = infer
@@ -53,13 +60,19 @@ class ImageDataset(Dataset):
         return np.random.default_rng(np.random.randint(0, 2 ** 31 - 1))
 
     def __getitem__(self, idx):
-        path = self.paths[idx]
-        img = load_image(path, self.img_mode)
-        rgb = np.array(img)
         if self.infer:
-            return {"input": self.transform(rgb), "path": path}
+            # With paired data the image to enhance is the low-light one.
+            path = self.input_paths[idx] if self.input_paths is not None else self.paths[idx]
+            return {"input": self.transform(np.array(load_image(path, self.img_mode))), "path": path}
 
-        dark = D.darken(rgb, self._rng(idx).uniform(*self.darken_range))
+        img = load_image(self.paths[idx], self.img_mode)
+        rgb = np.array(img)
+        if self.input_paths is not None:
+            dark = np.array(load_image(self.input_paths[idx], self.img_mode))
+            if dark.shape != rgb.shape:
+                raise ValueError(f"size mismatch: {self.input_paths[idx]} {dark.shape} vs {self.paths[idx]} {rgb.shape}")
+        else:
+            dark = D.darken(rgb, self._rng(idx).uniform(*self.darken_range))
         return {
             "input": self.transform(dark),
             "target_ycbcr": self.transform(np.array(img.convert("YCbCr"))),

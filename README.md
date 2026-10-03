@@ -30,6 +30,24 @@ python scripts/train.py --task dual --mode predict --csv_path ./csv --model_path
 python scripts/fit_regressor.py --label_csv kadid/labels.csv --image_dir kadid/images
 ```
 
+### Paired low-light data (LOL)
+
+By default the dual task synthesizes inputs by darkening. With an `input` column in the
+CSVs it trains on real low-light / normal-light pairs instead:
+
+```bash
+# 1) download LOL (~330MB; 485 train / 15 eval pairs, 600x400) -> data/lol_dataset/{our485,eval15}/{low,high}
+#    mirror of https://daooshee.github.io/BMVC2018website/
+mkdir -p data
+curl -L -o data/lol_dataset.zip https://huggingface.co/datasets/geekyrakshit/LoL-Dataset/resolve/main/lol_dataset.zip
+unzip -q data/lol_dataset.zip -d data/
+
+# 2) split CSVs (image = normal-light target, input = low-light), then train
+python scripts/make_paired_csv.py data/lol_dataset/our485 data/csv/lol/train.csv
+python scripts/make_paired_csv.py data/lol_dataset/eval15 data/csv/lol/valid.csv
+python scripts/train.py --task dual --csv_path data/csv/lol --img_size 0 --model_save_path weights/lol   # 0 = original resolution
+```
+
 `python scripts/train.py --task <dual|quality> --help` lists every option with the task's defaults.
 
 ## Layout

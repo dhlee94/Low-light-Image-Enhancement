@@ -46,6 +46,10 @@ class DualColorNetwork(nn.Module):
         self.transitional_block = Transitional(in_channels=in_channels, gp=gp, hidden_channels=hidden_channels)
         self.Base_block = Base(in_channels=in_channels, gp=gp, hidden_channels=hidden_channels)
         self.apply(init_weights)
+        for module in self.modules():
+            if isinstance(module, CPM):
+                nn.init.zeros_(module.fc2.weight)
+                nn.init.zeros_(module.fc2.bias)
 
     def forward(self, x, infer=False, only=False):
         ycbcr = self.transitional_block(x)
