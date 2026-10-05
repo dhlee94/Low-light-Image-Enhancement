@@ -53,6 +53,11 @@ python scripts/train.py --task dual --csv_path data/csv/lol --img_size 0 --model
 Features are scored with a Ridge regressor over 10 random 80/20 splits that never share a
 reference image between train and test; the median test SRCC / PLCC is reported.
 
+A fixed 20% of the reference images (16 of 81, `config.IQA_DATA`) is held out for model
+selection: `--monitor srcc` in quality training picks the best weights by SRCC on those
+references, and `eval_iqa.py` excludes them by default (`--no-exclude_val_refs` keeps them),
+so selection and the reported score never see the same images.
+
 ```bash
 # download KADID-10k (~3GB, 10,125 images) -> data/kadid10k/{dmos.csv,images/}
 curl -L -o data/kadid10k.zip https://datasets.vqa.mmsp-kn.de/archives/kadid10k.zip
@@ -64,12 +69,13 @@ python scripts/eval_iqa.py --backbone quality --dual_model_path ... --quality_mo
 # -> iqa_results/<backbone>_{metrics.json,features.npz}; --save_regressor also pickles a Ridge fit on all images
 ```
 
-Baselines (KADID-10k, median of 10 splits, seed 0; Ridge alpha chosen by grouped CV):
+Baselines (KADID-10k without the 16 validation references: 8,125 images / 65 references; median of
+10 splits, seed 0; Ridge alpha chosen by grouped CV):
 
 | backbone | features | SRCC | PLCC |
 |---|---|---|---|
-| `random` (untrained Dual + Quality) | 512 | 0.232 | 0.263 |
-| `resnet50` (ImageNet) | 2048 | 0.495 | 0.525 |
+| `random` (untrained Dual + Quality) | 512 | 0.222 | 0.270 |
+| `resnet50` (ImageNet) | 2048 | 0.488 | 0.521 |
 
 ### Configuration
 
@@ -91,6 +97,7 @@ Quality-task switches (the first value is the original behaviour and the config 
 | `--pair_selection` | `max_gap` (pair the EMA model separates most) / `min_margin` (hardest pair) / `random` |
 | `--contrastive` | `group` (weak vs strong) / `type_severity` (positives share type and severity) / `none` |
 | `--degradation_preset` | `original` / `balanced` (blur, JPEG, noise matched to similar SSIM; see `config.py`) |
+| `--monitor` | `loss` (self-supervised validation loss) / `srcc` (KADID SRCC on the held-out validation references) |
 
 `python scripts/train.py --task <dual|quality> --help` lists every option.
 

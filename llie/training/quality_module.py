@@ -1,10 +1,16 @@
 import os
 import warnings
 
+import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.data import DataLoader
+
+from llie import config
+from llie.data.dataset import ImageDataset
+from llie.data.transforms import build_transform
 
 from llie.training.base_module import BaseEnhancementModule
 from llie.training.losses import GroupContrastiveLoss, SupervisedContrastiveLoss
@@ -14,6 +20,7 @@ from llie.models.quality import QualityNetwork
 from llie.models.weights import load_weights
 from llie.training.pairing import select_pair
 from llie.training.rotation import rotate_batch
+from llie.utils.iqa import evaluate_features, load_iqa_table, validation_references
 
 
 def build_quality_network(args):
@@ -33,6 +40,10 @@ class QualityModule(BaseEnhancementModule):
       - rank:        strong pair should score higher than weak pair
       - rotation:    predict 0/90/180/270 rotation of the clean input
       - distance:    strong pair features farther from the clean input than weak ones
+
+    The best weights are picked by the validation loss, or with ``--monitor srcc``
+    by the KADID SRCC of a Ridge probe on the held-out validation references
+    (never used by ``scripts/eval_iqa.py``).
     """
 
     WEIGHT_FILES = {"quality_model": "quality_model.pth", "ema_model": "select_quality_model.pth"}
@@ -66,6 +77,9 @@ class QualityModule(BaseEnhancementModule):
         self.cross_entropy = nn.CrossEntropyLoss()
         self.bce = nn.BCEWithLogitsLoss()  # same as BCELoss(sigmoid(x)) but numerically stable
         self.loss_weights = dict(zip(self.LOSS_NAMES, args.loss_weights))
+        if args.monitor == "srcc":
+            self.MONITOR = ("srcc", "max")
+        self._iqa_val = None  # (loader, labels, groups), built on first use
 
     def train(self, mode=True):
         # Lightning toggles train/eval on the whole module; frozen parts stay in eval.
@@ -149,6 +163,37 @@ class QualityModule(BaseEnhancementModule):
         losses = self._compute_losses(batch, generator)
         losses["loss"] = self._total(losses)
         return losses
+
+    # ---- SRCC validation (--monitor srcc) ----------------------------------------
+    def _iqa_val_data(self):
+        if self._iqa_val is None:
+            iqa = config.IQA_DATA
+            paths, labels, groups = load_iqa_table(self.args.iqa_label_csv, self.args.iqa_image_dir,
+                                                   iqa["image_col"], iqa["group_col"], iqa["label_col"])
+            keep = np.isin(groups, sorted(validation_references(groups)))
+            # Same preprocessing as scripts/eval_iqa.py.
+            transform = build_transform((self.args.img_size, self.args.img_size), scaleup=True, stretch=True)
+            dataset = ImageDataset([p for p, k in zip(paths, keep) if k], transform, img_mode="RGB", infer=True)
+            loader = DataLoader(dataset, batch_size=self.args.batch_size, num_workers=self.args.workers)
+            self._iqa_val = (loader, labels[keep], groups[keep])
+        return self._iqa_val
+
+    @torch.no_grad()
+    def iqa_validation(self):
+        """SRCC / PLCC of a Ridge probe on the quality features of the validation references."""
+        loader, labels, groups = self._iqa_val_data()
+        feats = []
+        for batch in loader:
+            x = batch["input"].to(self.device)
+            feats.append(self.quality_model.encode(x, self.dual_model(x, only=True)).float().cpu())
+        result = evaluate_features(torch.cat(feats).numpy(), labels, groups,
+                                   n_splits=self.args.iqa_val_n_splits, seed=self.args.seed)
+        return {"srcc": result["srcc"], "plcc": result["plcc"]}
+
+    def on_validation_epoch_end(self):
+        if self.args.monitor == "srcc" and not self.trainer.sanity_checking:
+            self.val_metrics.update(**self.iqa_validation())
+        super().on_validation_epoch_end()
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         score, _ = self(batch["input"])

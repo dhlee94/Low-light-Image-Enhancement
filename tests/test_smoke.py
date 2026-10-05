@@ -21,6 +21,22 @@ def _load_script(name):
 train = _load_script("train")
 
 
+def _fake_kadid(root, n_refs=25, n_levels=3):
+    """KADID-format dmos.csv + images; score falls with the level, plus noise."""
+    root.mkdir(parents=True, exist_ok=True)
+    rng = np.random.default_rng(1)
+    rows = []
+    for ref in range(n_refs):
+        base = rng.integers(0, 255, (40, 40, 3), dtype=np.uint8)
+        for level in range(n_levels):
+            name = f"I{ref:02d}_{level}.png"
+            noisy = np.clip(base + rng.normal(0, 20 * level, base.shape), 0, 255).astype(np.uint8)
+            Image.fromarray(noisy).save(root / name)
+            rows.append({"dist_img": name, "ref_img": f"I{ref:02d}.png", "dmos": 5.0 - level + rng.normal(0, 0.1)})
+    pd.DataFrame(rows).to_csv(root / "dmos.csv", index=False)
+    return root
+
+
 @pytest.fixture
 def csv_dir(tmp_path):
     rng = np.random.default_rng(0)
@@ -63,6 +79,13 @@ def test_dual_then_quality_pipeline(csv_dir, tmp_path):
     scores = pd.read_csv(tmp_path / "pred" / "quality_scores.csv")
     assert len(scores) == 6 and scores["score"].notna().all()
 
+    # Best weights picked by SRCC on held-out references of a KADID-format CSV.
+    iqa_dir = _fake_kadid(tmp_path / "kadid")
+    train.main([*quality, "--monitor", "srcc", "--iqa_label_csv", str(iqa_dir / "dmos.csv"),
+                "--iqa_image_dir", str(iqa_dir), "--iqa_val_n_splits", "2", *common])
+    latest_log = max((tmp_path / "log" / "quality").glob("version_*"), key=lambda p: int(p.name.split("_")[1]))
+    assert pd.read_csv(latest_log / "metrics.csv")["val/srcc"].notna().any()
+
     # Every non-default switch combination still trains end to end (overwrites the weights).
     for switches in (["--pair_selection", "min_margin", "--contrastive", "type_severity"],
                      ["--pair_selection", "random", "--contrastive", "none", "--degradation_preset", "balanced",
@@ -104,7 +127,9 @@ def test_eval_iqa_random_backbone(tmp_path):
         "--image_dir", str(tmp_path), "--img_size", "32", "--dim", "32", "--heads", "4", "--n_splits", "3",
         "--out_dir", str(tmp_path / "out"), "--save_regressor"])
     result = eval_iqa.main(args)
-    assert result["n_images"] == 18 and result["feature_dim"] == 32  # --dim
+    # 1 of the 6 references (20%) is held out for model selection and excluded here.
+    assert result["n_images"] == 15 and result["n_refs"] == 5 and len(result["excluded_val_refs"]) == 1
+    assert result["feature_dim"] == 32  # --dim
     assert len(result["per_split"]["srcc"]) == 3
     for name in ("random_metrics.json", "random_features.npz", "random_ridge.pkl"):
         assert (tmp_path / "out" / name).exists()

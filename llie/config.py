@@ -7,6 +7,20 @@ reads it from here. Fixed constants (colour-space matrices, ImageNet mean/std)
 are not hyperparameters and stay next to the code that uses them.
 """
 
+# ---- IQA data (KADID-10k) --------------------------------------------------------
+IQA_DATA = dict(
+    label_csv="data/kadid10k/dmos.csv",
+    image_dir="data/kadid10k/images",
+    image_col="dist_img",
+    group_col="ref_img",     # reference (pristine) image; splits never share one
+    label_col="dmos",
+    # A fixed subset of reference images is held out for model selection during
+    # quality training; eval_iqa.py excludes it by default so selection and the
+    # reported score never use the same images.
+    val_ref_fraction=0.2,
+    val_ref_seed=0,
+)
+
 # ---- shared by both training tasks --------------------------------------------
 TRAIN = dict(
     mode="train",
@@ -83,6 +97,14 @@ TASKS = {
         contrastive="group",
         # degradation ranges, see DEGRADATION_PRESETS
         degradation_preset="original",
+        # validation metric that picks the best weights:
+        #   "loss": self-supervised validation loss (lower is better)
+        #   "srcc": KADID SRCC of a Ridge probe on the held-out validation references
+        #           (IQA_DATA; higher is better). Needs KADID-10k on disk.
+        monitor="loss",
+        iqa_val_n_splits=5,                 # Ridge splits inside the validation references
+        iqa_label_csv=IQA_DATA["label_csv"],
+        iqa_image_dir=IQA_DATA["image_dir"],
     ),
 }
 
@@ -133,11 +155,12 @@ DEGRADATION_PRESETS = {
 EVAL_IQA = dict(
     backbone="quality",
     seed=0,
-    label_csv="data/kadid10k/dmos.csv",
-    image_dir="data/kadid10k/images",
-    image_col="dist_img",
-    group_col="ref_img",     # splits never share a reference image
-    label_col="dmos",
+    label_csv=IQA_DATA["label_csv"],
+    image_dir=IQA_DATA["image_dir"],
+    image_col=IQA_DATA["image_col"],
+    group_col=IQA_DATA["group_col"],
+    label_col=IQA_DATA["label_col"],
+    exclude_val_refs=True,   # drop the references used for model selection (IQA_DATA)
     img_size=256,            # quality/random input size; must match training
     batch_size=16,
     workers=2,
