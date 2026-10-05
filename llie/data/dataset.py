@@ -86,13 +86,15 @@ class ImageDataset(Dataset):
 class QualityImageDataset(ImageDataset):
     """Clean image plus a strong/weak pair for JPEG compression and Gaussian noise.
 
-    ``degradations`` holds the (low, high) parameter ranges, keyed as in
-    ``config.DEGRADATIONS`` (jpeg_quality_*, noise_var_*); other keys are ignored.
+    ``degradations`` holds the (min, max) parameter ranges, keyed as in
+    ``config.DEGRADATION_PRESETS`` (jpeg_quality_*, noise_var_*); other keys are
+    ignored and missing ones come from the configured default preset.
     """
 
     def __init__(self, *args, degradations: Optional[Dict] = None, **kwargs):
         super().__init__(*args, **kwargs)
-        self.degradations = dict(config.DEGRADATIONS, **(degradations or {}))
+        preset = config.DEGRADATION_PRESETS[config.TASKS["quality"]["degradation_preset"]]
+        self.degradations = dict(preset, **(degradations or {}))
 
     def __getitem__(self, idx):
         path = self.paths[idx]

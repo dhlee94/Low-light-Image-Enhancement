@@ -83,6 +83,15 @@ python scripts/train.py --task quality ... --separate_ycbcr_embedding     # on
 python scripts/train.py --task quality ... --no-separate_ycbcr_embedding  # off
 ```
 
+Quality-task switches (the first value is the original behaviour and the config default):
+
+| option | values |
+|---|---|
+| `--separate_ycbcr_embedding` | off (shared) / on |
+| `--pair_selection` | `max_gap` (pair the EMA model separates most) / `min_margin` (hardest pair) / `random` |
+| `--contrastive` | `group` (weak vs strong) / `type_severity` (positives share type and severity) / `none` |
+| `--degradation_preset` | `original` / `balanced` (blur, JPEG, noise matched to similar SSIM; see `config.py`) |
+
 `python scripts/train.py --task <dual|quality> --help` lists every option.
 
 ## Layout

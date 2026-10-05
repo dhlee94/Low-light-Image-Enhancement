@@ -63,6 +63,12 @@ def test_dual_then_quality_pipeline(csv_dir, tmp_path):
     scores = pd.read_csv(tmp_path / "pred" / "quality_scores.csv")
     assert len(scores) == 6 and scores["score"].notna().all()
 
+    # Every non-default switch combination still trains end to end (overwrites the weights).
+    for switches in (["--pair_selection", "min_margin", "--contrastive", "type_severity"],
+                     ["--pair_selection", "random", "--contrastive", "none", "--degradation_preset", "balanced",
+                      "--separate_ycbcr_embedding"]):
+        train.main([*quality, *switches, *common])
+
 
 def test_dual_paired_original_resolution(tmp_path):
     rng = np.random.default_rng(0)

@@ -7,12 +7,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from llie.training.base_module import BaseEnhancementModule
-from llie.training.losses import GroupContrastiveLoss
+from llie.training.losses import GroupContrastiveLoss, SupervisedContrastiveLoss
 from llie.data.degradations import random_gaussian_blur
 from llie.models.dual_color import DualColorNetwork
 from llie.models.quality import QualityNetwork
 from llie.models.weights import load_weights
-from llie.training.pairing import select_hardest_pair
+from llie.training.pairing import select_pair
 from llie.training.rotation import rotate_batch
 
 
@@ -26,9 +26,10 @@ def build_quality_network(args):
 class QualityModule(BaseEnhancementModule):
     """Self-supervised quality network.
 
-    Per batch: build strong/weak degradation pairs (blur, JPEG, noise), keep the
-    pair the EMA model separates most, and train on
-      - contrastive: weak vs strong feature groups
+    Per batch: build strong/weak degradation pairs (blur, JPEG, noise), keep one
+    type per sample (``--pair_selection``; originally the pair the EMA model
+    separates most), and train on
+      - contrastive: weak vs strong feature groups (``--contrastive``)
       - rank:        strong pair should score higher than weak pair
       - rotation:    predict 0/90/180/270 rotation of the clean input
       - distance:    strong pair features farther from the clean input than weak ones
@@ -56,7 +57,12 @@ class QualityModule(BaseEnhancementModule):
         self.ema_model.load_state_dict(self.quality_model.state_dict())
         self.ema_model.requires_grad_(False)
 
-        self.contrastive = GroupContrastiveLoss(temperature=args.temperature)
+        if args.contrastive == "group":
+            self.contrastive = GroupContrastiveLoss(temperature=args.temperature)
+        elif args.contrastive == "type_severity":
+            self.contrastive = SupervisedContrastiveLoss(temperature=args.temperature)
+        else:
+            self.contrastive = None
         self.cross_entropy = nn.CrossEntropyLoss()
         self.bce = nn.BCEWithLogitsLoss()  # same as BCELoss(sigmoid(x)) but numerically stable
         self.loss_weights = dict(zip(self.LOSS_NAMES, args.loss_weights))
@@ -82,12 +88,13 @@ class QualityModule(BaseEnhancementModule):
         x = batch["input"]
         highs = [random_gaussian_blur(x, self.args.blur_sigma_high, generator), batch["jpeg_high"], batch["noise_high"]]
         lows = [random_gaussian_blur(x, self.args.blur_sigma_low, generator), batch["jpeg_low"], batch["noise_low"]]
-        return select_hardest_pair(self.dual_model, self.ema_model, highs, lows)
+        return select_pair(self.dual_model, self.ema_model, highs, lows,
+                           mode=self.args.pair_selection, generator=generator)
 
     def _compute_losses(self, batch, generator=None):
         x = batch["input"]
         b = x.shape[0]
-        high, low, high_ycbcr, low_ycbcr = self._make_pairs(batch, generator)
+        high, low, high_ycbcr, low_ycbcr, pair_type = self._make_pairs(batch, generator)
         rotated, rot_labels = rotate_batch(x)  # rotated[:b] is x itself
         with torch.no_grad():
             rotated_ycbcr = self.dual_model(rotated, only=True)
@@ -104,11 +111,20 @@ class QualityModule(BaseEnhancementModule):
         dist_low = F.pairwise_distance(feat_low, feat)
         # (score_high - score) - (score_low - score) == score_high - score_low
         return {
-            "contrastive": self.contrastive(feat_low, feat_high),
+            "contrastive": self._contrastive_loss(feat_low, feat_high, pair_type),
             "rank": self.bce(score_high - score_low, torch.ones_like(score)),
             "rotate": self.cross_entropy(rot_logits, rot_labels),
             "distance": self.bce(dist_high - dist_low, torch.ones_like(dist_high)),
         }
+
+    def _contrastive_loss(self, feat_low, feat_high, pair_type):
+        if self.args.contrastive == "group":
+            return self.contrastive(feat_low, feat_high)
+        if self.args.contrastive == "type_severity":
+            # label = 2 * degradation type + severity (0 weak, 1 strong)
+            labels = torch.cat([2 * pair_type, 2 * pair_type + 1])
+            return self.contrastive(torch.cat([feat_low, feat_high]), labels)
+        return feat_low.sum() * 0.0  # disabled; keeps the logged value and the graph
 
     def _total(self, losses):
         return sum(self.loss_weights[name] * value for name, value in losses.items())
