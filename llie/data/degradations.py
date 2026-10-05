@@ -1,6 +1,7 @@
 """Synthetic degradations.
 
-Convention: the "high" variant of a pair is the MORE degraded one.
+Convention: the "high" variant of a pair is the MORE degraded one. The parameter
+ranges are hyperparameters and live in ``llie/config.py`` (DEGRADATIONS).
 Numpy-level functions take (H, W, 3) uint8 arrays and a ``numpy.random.Generator``
 so datasets can make them deterministic per sample.
 """
@@ -11,12 +12,6 @@ import numpy as np
 import torch
 from PIL import Image
 from torchvision.transforms.functional import gaussian_blur
-
-# (low, high) ranges of each degradation's parameter.
-JPEG_QUALITY_HIGH = (40, 60)   # heavier compression
-JPEG_QUALITY_LOW = (80, 90)
-NOISE_VAR_HIGH = (5e-5, 5.1e-5)
-NOISE_VAR_LOW = (1e-5, 1.1e-5)
 
 
 def darken(img, factor):

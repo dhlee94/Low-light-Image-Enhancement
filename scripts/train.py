@@ -11,6 +11,7 @@ import pandas as pd
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import CSVLogger
 
+from llie import config
 from llie.cli import parse_args
 from llie.training.dual_module import DualColorModule
 from llie.training.quality_module import QualityModule
@@ -56,7 +57,8 @@ def main(argv=None):
 
     datamodule = DataModule(load_split_csvs(args.csv_path), task=args.task, img_size=args.img_shape,
                             img_mode=args.img_mode, batch_size=args.batch_size, num_workers=args.workers,
-                            seed=args.seed, darken_range=getattr(args, "darken_range", (0.5, 0.9)))
+                            seed=args.seed, darken_range=getattr(args, "darken_range", config.TASKS["dual"]["darken_range"]),
+                            degradations={k: getattr(args, k) for k in config.DEGRADATIONS if hasattr(args, k)})
     module = MODULES[args.task](args)
     trainer = build_trainer(args)
 

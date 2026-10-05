@@ -15,6 +15,8 @@ from sklearn.model_selection import GridSearchCV, GroupKFold, GroupShuffleSplit
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
+from llie import config
+
 
 def srcc(pred, label) -> float:
     return float(stats.spearmanr(pred, label)[0])
@@ -24,14 +26,15 @@ def plcc(pred, label) -> float:
     return float(stats.pearsonr(pred, label)[0])
 
 
-DEFAULT_ALPHAS = tuple(10.0 ** np.arange(-2, 9))
+DEFAULT_ALPHAS = tuple(config.EVAL_IQA["alphas"])
+DEFAULT_INNER_FOLDS = config.EVAL_IQA["inner_folds"]
 
 
 def make_regressor(alpha=1.0):
     return make_pipeline(StandardScaler(), Ridge(alpha=alpha))
 
 
-def fit_regressor(features, labels, groups, alphas=DEFAULT_ALPHAS, inner_folds=5):
+def fit_regressor(features, labels, groups, alphas=DEFAULT_ALPHAS, inner_folds=DEFAULT_INNER_FOLDS):
     """Ridge with alpha picked by reference-grouped K-fold CV; one alpha -> no search."""
     if len(alphas) == 1:
         return make_regressor(alphas[0]).fit(features, labels)
@@ -57,14 +60,14 @@ def grouped_splits(groups: Sequence, n_splits=10, test_size=0.2, seed=0):
 
 
 def evaluate_features(features, labels, groups, n_splits=10, test_size=0.2, alphas=DEFAULT_ALPHAS,
-                      seed=0) -> Dict:
+                      seed=0, inner_folds=DEFAULT_INNER_FOLDS) -> Dict:
     """Median (and per-split) test SRCC / PLCC of a Ridge regressor on ``features``."""
     features, labels = np.asarray(features, dtype=np.float64), np.asarray(labels, dtype=np.float64)
     groups = np.asarray(groups)
     per_split = {"srcc": [], "plcc": [], "alpha": []}
     for train_idx, test_idx in grouped_splits(groups, n_splits, test_size, seed):
         with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
-            reg = fit_regressor(features[train_idx], labels[train_idx], groups[train_idx], alphas)
+            reg = fit_regressor(features[train_idx], labels[train_idx], groups[train_idx], alphas, inner_folds)
         pred = _predict(reg, features[test_idx])
         per_split["srcc"].append(srcc(pred, labels[test_idx]))
         per_split["plcc"].append(plcc(pred, labels[test_idx]))

@@ -9,13 +9,16 @@ Either with infer=True:      {"input", "path"}
 ``seed=None`` draws fresh random degradations each time (training); an integer
 seed makes sample ``idx`` always get the same degradation (validation / test).
 """
-from typing import Optional, Sequence, Tuple
+from typing import Dict, Optional, Sequence, Tuple
 
 import numpy as np
 from PIL import Image
 from torch.utils.data import Dataset
 
+from llie import config
 from llie.data import degradations as D
+
+_DARKEN_RANGE = tuple(config.TASKS["dual"]["darken_range"])
 
 
 def load_image(path, img_mode="RGB"):
@@ -38,7 +41,7 @@ class ImageDataset(Dataset):
     if given, otherwise the target darkened by a random factor."""
 
     def __init__(self, paths: Sequence[str], transform, img_mode="RGB", infer=False,
-                 darken_range: Tuple[float, float] = (0.5, 0.9), seed: Optional[int] = None,
+                 darken_range: Tuple[float, float] = _DARKEN_RANGE, seed: Optional[int] = None,
                  input_paths: Optional[Sequence[str]] = None):
         if input_paths is not None and len(input_paths) != len(paths):
             raise ValueError(f"{len(input_paths)} input paths for {len(paths)} target paths")
@@ -81,7 +84,15 @@ class ImageDataset(Dataset):
 
 
 class QualityImageDataset(ImageDataset):
-    """Clean image plus a strong/weak pair for JPEG compression and Gaussian noise."""
+    """Clean image plus a strong/weak pair for JPEG compression and Gaussian noise.
+
+    ``degradations`` holds the (low, high) parameter ranges, keyed as in
+    ``config.DEGRADATIONS`` (jpeg_quality_*, noise_var_*); other keys are ignored.
+    """
+
+    def __init__(self, *args, degradations: Optional[Dict] = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.degradations = dict(config.DEGRADATIONS, **(degradations or {}))
 
     def __getitem__(self, idx):
         path = self.paths[idx]
@@ -90,13 +101,14 @@ class QualityImageDataset(ImageDataset):
             return {"input": self.transform(rgb), "path": path}
 
         rng = self._rng(idx)
+        d = self.degradations
         # Degrade the mode-converted image, then convert again: in "L" mode every
         # output stays grayscale (previously the JPEG pair kept its colours).
         degraded = {
-            "jpeg_high": D.jpeg_compress(rgb, rng.uniform(*D.JPEG_QUALITY_HIGH)),
-            "jpeg_low": D.jpeg_compress(rgb, rng.uniform(*D.JPEG_QUALITY_LOW)),
-            "noise_high": D.add_gaussian_noise(rgb, rng.uniform(*D.NOISE_VAR_HIGH), rng),
-            "noise_low": D.add_gaussian_noise(rgb, rng.uniform(*D.NOISE_VAR_LOW), rng),
+            "jpeg_high": D.jpeg_compress(rgb, rng.uniform(*d["jpeg_quality_high"])),
+            "jpeg_low": D.jpeg_compress(rgb, rng.uniform(*d["jpeg_quality_low"])),
+            "noise_high": D.add_gaussian_noise(rgb, rng.uniform(*d["noise_var_high"]), rng),
+            "noise_low": D.add_gaussian_noise(rgb, rng.uniform(*d["noise_var_low"]), rng),
         }
         item = {"input": self.transform(rgb)}
         item.update({k: self.transform(apply_mode(v, self.img_mode)) for k, v in degraded.items()})

@@ -71,13 +71,26 @@ Baselines (KADID-10k, median of 10 splits, seed 0; Ridge alpha chosen by grouped
 | `random` (untrained Dual + Quality) | 512 | 0.232 | 0.263 |
 | `resnet50` (ImageNet) | 2048 | 0.495 | 0.525 |
 
-`python scripts/train.py --task <dual|quality> --help` lists every option with the task's defaults.
+### Configuration
+
+Every default hyperparameter lives in `llie/config.py` (training, per-task settings, networks,
+quality-task degradation ranges, IQA evaluation). Edit it to change a default, or override any value
+for one run on the command line, e.g. `--lr 1e-4`. Switches are on/off flags:
+
+```bash
+# QualityNetwork: separate patch embedding for the YCbCr branch (config default: shared)
+python scripts/train.py --task quality ... --separate_ycbcr_embedding     # on
+python scripts/train.py --task quality ... --no-separate_ycbcr_embedding  # off
+```
+
+`python scripts/train.py --task <dual|quality> --help` lists every option.
 
 ## Layout
 
 ```
 llie/
-  cli.py          command-line arguments and per-task defaults
+  config.py       every default hyperparameter
+  cli.py          command-line parsers (defaults from config.py)
   models/         DualColorNetwork (dual_color.py, parts.py), QualityNetwork (quality.py), weight I/O
   data/           datasets, DataModule, synthetic degradations, transforms
   training/       LightningModules, losses, schedulers, quality-task helpers (pairing, rotation)

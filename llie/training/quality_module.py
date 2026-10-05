@@ -19,7 +19,8 @@ from llie.training.rotation import rotate_batch
 def build_quality_network(args):
     return QualityNetwork(image_size=args.img_size, patch_size=args.patch_size, dim=args.dim,
                           encoder_depth=args.encoder_depth, decoder_depth=args.decoder_depth, heads=args.heads,
-                          channels=args.in_channels, drop_out=args.drop_out, emb_dropout=args.emb_dropout)
+                          channels=args.in_channels, drop_out=args.drop_out, emb_dropout=args.emb_dropout,
+                          separate_ycbcr_embedding=args.separate_ycbcr_embedding)
 
 
 class QualityModule(BaseEnhancementModule):

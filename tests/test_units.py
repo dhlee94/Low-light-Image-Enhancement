@@ -179,3 +179,59 @@ def test_evaluate_features_separates_signal_from_noise():
     informative = np.column_stack([labels + 0.1 * rng.normal(size=len(groups)), noise])
     assert evaluate_features(informative, labels, groups, n_splits=5)["srcc"] > 0.95
     assert abs(evaluate_features(noise, labels, groups, n_splits=5)["srcc"]) < 0.3
+
+
+# ---- config.py is the single source of defaults ---------------------------------------
+def _option_dests(parser):
+    return {a.dest for a in parser._actions if a.dest != "help"}
+
+
+def test_every_cli_default_comes_from_config():
+    from llie import config
+    from llie.cli import build_parser
+    for task in config.TASKS:
+        parser = build_parser(task)
+        known = set(config.TRAIN) | set(config.TASKS[task]) | set(config.DUAL_MODEL)
+        if task == "quality":
+            known |= set(config.QUALITY_MODEL) | set(config.DEGRADATIONS)
+        assert _option_dests(parser) - {"task", "csv_path"} <= known
+        # No argparse-level default can hide a config value.
+        assert all(a.default is None or a.dest in known for a in parser._actions if a.dest != "help")
+
+
+def test_eval_iqa_defaults_come_from_config():
+    import importlib.util
+    from pathlib import Path
+    from llie import config
+    path = Path(__file__).resolve().parents[1] / "scripts" / "eval_iqa.py"
+    spec = importlib.util.spec_from_file_location("eval_iqa", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    args = module.parse_args([])
+    for key, value in {**config.EVAL_IQA, **config.DUAL_MODEL, **config.QUALITY_MODEL}.items():
+        assert getattr(args, key) == value, key
+
+
+def test_separate_ycbcr_embedding_switch():
+    from llie.cli import parse_args
+    from llie.training.quality_module import build_quality_network
+    base = ["--task", "quality", "--csv_path", "x", "--img_size", "32", "--dim", "32", "--heads", "4"]
+    shared = build_quality_network(parse_args(base))
+    separate = build_quality_network(parse_args(base + ["--separate_ycbcr_embedding"]))
+    assert shared.encoder.to_patch_embedding_ycbcr is None
+    assert not any("ycbcr" in k for k in shared.state_dict())
+    extra = sum(p.numel() for p in separate.parameters()) - sum(p.numel() for p in shared.parameters())
+    assert extra == 3 * 8 * 8 * 32 + 32  # one more 8x8 patch conv, 3 -> dim
+    x = _random_images(b=2, size=32)
+    for net in (shared, separate):
+        score, feat = net(x, x, infer=True)
+        assert score.shape == (2, 1) and feat.shape == (2, 32)
+
+
+def test_quality_dataset_degradations_are_configurable(dotted_image_dir):
+    paths = [str(dotted_image_dir / name) for name in sorted(os.listdir(dotted_image_dir))]
+    ds = QualityImageDataset(paths, build_transform((32, 32)), seed=0,
+                             degradations={"noise_var_high": [0.0, 0.0], "noise_var_low": [0.0, 0.0]})
+    item = ds[0]
+    torch.testing.assert_close(item["noise_high"], item["input"])  # zero variance -> no noise
+    assert ds.degradations["jpeg_quality_high"] == [40, 60]       # untouched keys keep the config value

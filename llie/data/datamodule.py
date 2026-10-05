@@ -3,6 +3,7 @@ import pytorch_lightning as pl
 import torch
 from torch.utils.data import DataLoader
 
+from llie import config
 from llie.data.dataset import ImageDataset, QualityImageDataset
 from llie.data.transforms import build_transform
 
@@ -20,7 +21,8 @@ class DataModule(pl.LightningDataModule):
     """
 
     def __init__(self, csvs, task, img_size=(512, 512), img_mode="RGB", batch_size=4, num_workers=0,
-                 seed=0, darken_range=(0.5, 0.9), interpolation=cv2.INTER_LINEAR):
+                 seed=0, darken_range=tuple(config.TASKS["dual"]["darken_range"]), degradations=None,
+                 interpolation=cv2.INTER_LINEAR):
         super().__init__()
         if task not in _DATASETS:
             raise ValueError(f"unknown task {task!r}")
@@ -31,6 +33,7 @@ class DataModule(pl.LightningDataModule):
         self.num_workers = num_workers
         self.seed = seed
         self.darken_range = tuple(darken_range)
+        self.degradations = degradations
         self.transform = build_transform(img_size, interpolation=interpolation, scaleup=False, stretch=True)
 
     def build_dataset(self, split):
@@ -41,6 +44,8 @@ class DataModule(pl.LightningDataModule):
         kwargs = {}
         if dataset_cls is ImageDataset and "input" in df.columns:
             kwargs["input_paths"] = df["input"].tolist()
+        if dataset_cls is QualityImageDataset:
+            kwargs["degradations"] = self.degradations
         return dataset_cls(
             paths, self.transform, img_mode=self.img_mode, infer=(split == "predict"),
             darken_range=self.darken_range, seed=None if split == "train" else self.seed, **kwargs)
