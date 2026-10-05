@@ -3,6 +3,8 @@
 Features are extracted once, then a Ridge regressor is fit and tested on
 ``--n_splits`` random reference-disjoint 80/20 splits (median SRCC / PLCC); the
 Ridge strength is chosen inside each train split by reference-grouped 5-fold CV.
+The references held out for model selection during quality training
+(``config.IQA_DATA``) are excluded unless ``--no-exclude_val_refs``.
 
     # trained QualityNetwork (needs the DualColorNetwork it was trained on)
     python scripts/eval_iqa.py --backbone quality --dual_model_path weights/model.pth \\
@@ -19,10 +21,8 @@ import argparse
 import json
 import os
 import pickle
-import warnings
 
 import numpy as np
-import pandas as pd
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -35,7 +35,7 @@ from llie.data.transforms import build_transform
 from llie.models.dual_color import DualColorNetwork
 from llie.models.weights import load_weights
 from llie.training.quality_module import build_quality_network
-from llie.utils.iqa import evaluate_features, fit_regressor, srcc
+from llie.utils.iqa import evaluate_features, fit_regressor, load_iqa_table, srcc, validation_references
 from llie.utils.seed import seed_everything
 
 BACKBONES = ("quality", "random", "resnet50")
@@ -61,6 +61,8 @@ def parse_args(argv=None):
     p.add_argument("--image_col")
     p.add_argument("--group_col", help="reference image of each sample; splits never share a reference")
     p.add_argument("--label_col")
+    p.add_argument("--exclude_val_refs", action=argparse.BooleanOptionalAction,
+                   help="drop the references used for model selection during training (default: on)")
     p.add_argument("--img_size", type=int,
                    help="square input size for quality/random (must match training); resnet50 uses the original size")
     p.add_argument("--batch_size", type=int)
@@ -132,14 +134,13 @@ def extract(args, paths, device):
 
 
 def main(args):
-    df = pd.read_csv(args.label_csv)
-    paths = [os.path.join(args.image_dir, name) for name in df[args.image_col]]
-    labels = df[args.label_col].to_numpy(dtype=np.float64)
-    if args.group_col in df.columns:
-        groups = df[args.group_col].to_numpy()
-    else:
-        warnings.warn(f"no '{args.group_col}' column: splitting per image, so content can leak across splits")
-        groups = np.arange(len(df))
+    paths, labels, groups = load_iqa_table(args.label_csv, args.image_dir, args.image_col,
+                                           args.group_col, args.label_col)
+    excluded = sorted(validation_references(groups)) if args.exclude_val_refs else []
+    if excluded:
+        keep = ~np.isin(groups, excluded)
+        paths, labels, groups = [p for p, k in zip(paths, keep) if k], labels[keep], groups[keep]
+    n_refs = len(set(groups.tolist()))
 
     feats, scores = extract(args, paths, torch.device(args.device))
     os.makedirs(args.out_dir, exist_ok=True)
@@ -148,12 +149,14 @@ def main(args):
 
     result = evaluate_features(feats, labels, groups, n_splits=args.n_splits, test_size=args.test_size,
                                alphas=args.alphas, seed=args.seed, inner_folds=args.inner_folds)
-    result.update(backbone=args.backbone, n_images=len(df), feature_dim=int(feats.shape[1]))
+    result.update(backbone=args.backbone, n_images=len(paths), n_refs=n_refs, excluded_val_refs=excluded,
+                  feature_dim=int(feats.shape[1]))
     if scores is not None:
         # Score head without any regression (self-supervised: sign is arbitrary).
         result["score_head_abs_srcc"] = abs(srcc(scores, labels))
 
-    print(f"[{args.backbone}] {len(df)} images, {feats.shape[1]}-d features, "
+    print(f"[{args.backbone}] {len(paths)} images / {n_refs} references"
+          f"{f' ({len(excluded)} validation references excluded)' if excluded else ''}, {feats.shape[1]}-d features, "
           f"{args.n_splits} reference-disjoint splits (median)")
     print(f"  SRCC {result['srcc']:.4f} (std {result['srcc_std']:.4f})   "
           f"PLCC {result['plcc']:.4f} (std {result['plcc_std']:.4f})   "
@@ -167,7 +170,7 @@ def main(args):
         path = os.path.join(args.out_dir, f"{args.backbone}_ridge.pkl")
         with open(path, "wb") as f, np.errstate(divide="ignore", over="ignore", invalid="ignore"):
             pickle.dump(fit_regressor(feats, labels, groups, args.alphas, args.inner_folds), f)
-        print(f"  Ridge fit on all {len(df)} samples -> {path}")
+        print(f"  Ridge fit on all {len(paths)} samples -> {path}")
     return result
 
 

@@ -286,3 +286,11 @@ def test_degradation_preset_resolution():
     assert args.noise_var_high == [0.1, 0.2]                       # explicit range wins
     assert args.jpeg_quality_high == balanced["jpeg_quality_high"]  # the rest from the preset
     assert args.blur_sigma_low == balanced["blur_sigma_low"]
+
+
+def test_validation_references_are_fixed_and_partial():
+    from llie.utils.iqa import validation_references
+    groups = np.repeat([f"I{i:02d}.png" for i in range(81)], 3)
+    val = validation_references(groups)
+    assert len(val) == 16 and val == validation_references(groups[::-1])  # order-independent
+    assert len(validation_references(np.repeat(["a", "b"], 2), fraction=0.9)) == 1  # never all references

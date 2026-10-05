@@ -6,9 +6,12 @@ fit a Ridge regressor on standardized train features, and report the median
 SRCC / PLCC on the test side. The Ridge strength is chosen per split by a
 reference-grouped cross-validation on the train side only.
 """
+import os
+import warnings
 from typing import Dict, Sequence
 
 import numpy as np
+import pandas as pd
 from scipy import stats
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import GridSearchCV, GroupKFold, GroupShuffleSplit
@@ -39,6 +42,9 @@ def fit_regressor(features, labels, groups, alphas=DEFAULT_ALPHAS, inner_folds=D
     if len(alphas) == 1:
         return make_regressor(alphas[0]).fit(features, labels)
     folds = min(inner_folds, len(np.unique(groups)))
+    if folds < 2:
+        raise ValueError(f"choosing alpha needs train samples from >= 2 reference images, got {folds}; "
+                         "use more references or pass a single alpha")
     search = GridSearchCV(make_regressor(), {"ridge__alpha": list(alphas)}, cv=GroupKFold(folds))
     return search.fit(features, labels, groups=groups).best_estimator_
 
@@ -51,6 +57,27 @@ def _predict(reg, features):
     if not np.isfinite(pred).all():
         raise FloatingPointError("Ridge produced non-finite predictions")
     return pred
+
+
+def load_iqa_table(label_csv, image_dir, image_col, group_col, label_col):
+    """(paths, labels, groups) of a human-score CSV; groups = reference image per sample."""
+    df = pd.read_csv(label_csv)
+    paths = [os.path.join(image_dir, name) for name in df[image_col]]
+    labels = df[label_col].to_numpy(dtype=np.float64)
+    if group_col in df.columns:
+        groups = df[group_col].to_numpy()
+    else:
+        warnings.warn(f"no '{group_col}' column: splitting per image, so content can leak across splits")
+        groups = np.arange(len(df))
+    return paths, labels, groups
+
+
+def validation_references(groups: Sequence, fraction=config.IQA_DATA["val_ref_fraction"],
+                          seed=config.IQA_DATA["val_ref_seed"]) -> set:
+    """Fixed set of references held out for model selection (at least one, never all)."""
+    refs = np.array(sorted(set(np.asarray(groups).tolist())))
+    n_val = min(len(refs) - 1, max(1, int(round(fraction * len(refs)))))
+    return set(np.random.default_rng(seed).permutation(refs)[:n_val].tolist())
 
 
 def grouped_splits(groups: Sequence, n_splits=10, test_size=0.2, seed=0):

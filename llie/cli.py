@@ -138,6 +138,12 @@ def build_parser(task: str) -> argparse.ArgumentParser:
         g.add_argument("--pair_selection", choices=("max_gap", "min_margin", "random"),
                        help="max_gap: pair the EMA model separates most (original) / min_margin: hardest pair / "
                             "random: random degradation type")
+        g.add_argument("--monitor", choices=("loss", "srcc"),
+                       help="metric that picks the best weights: loss (original) / srcc on the held-out KADID "
+                            "validation references (config.IQA_DATA)")
+        g.add_argument("--iqa_val_n_splits", type=int, help="--monitor srcc: Ridge splits inside the validation refs")
+        g.add_argument("--iqa_label_csv", help="--monitor srcc: human-score CSV (KADID-10k dmos.csv format)")
+        g.add_argument("--iqa_image_dir", help="--monitor srcc: directory the CSV image names are relative to")
         g.add_argument("--contrastive", choices=("group", "type_severity", "none"),
                        help="group: weak vs strong (original) / type_severity: positives share degradation type "
                             "and severity / none: disabled")
