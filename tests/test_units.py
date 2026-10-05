@@ -159,3 +159,23 @@ def test_quality_dataset_items(dotted_image_dir):
     # Degradations are seeded per index, and nothing is written to disk.
     torch.testing.assert_close(ds[0]["jpeg_high"], item["jpeg_high"])
     assert sorted(os.listdir(dotted_image_dir)) == before
+
+
+# ---- IQA evaluation protocol -----------------------------------------------------
+def test_grouped_splits_never_share_a_reference():
+    from llie.utils.iqa import grouped_splits
+    groups = np.repeat(np.arange(20), 5)  # 20 references x 5 distortions
+    for train_idx, test_idx in grouped_splits(groups, n_splits=5):
+        assert not set(groups[train_idx]) & set(groups[test_idx])
+        assert len(test_idx) == 20  # 20% of the references
+
+
+def test_evaluate_features_separates_signal_from_noise():
+    from llie.utils.iqa import evaluate_features
+    rng = np.random.default_rng(0)
+    groups = np.repeat(np.arange(40), 5)
+    labels = rng.uniform(1, 5, size=len(groups))
+    noise = rng.normal(size=(len(groups), 16))
+    informative = np.column_stack([labels + 0.1 * rng.normal(size=len(groups)), noise])
+    assert evaluate_features(informative, labels, groups, n_splits=5)["srcc"] > 0.95
+    assert abs(evaluate_features(noise, labels, groups, n_splits=5)["srcc"]) < 0.3
