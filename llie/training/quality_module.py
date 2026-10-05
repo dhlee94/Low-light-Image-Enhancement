@@ -71,7 +71,7 @@ class QualityModule(BaseEnhancementModule):
         return self.quality_model.parameters()
 
     def forward(self, x):
-        """Inference: (score (B, 1), feature (B, num_patches))."""
+        """Inference: (score (B, 1), feature (B, dim))."""
         with torch.no_grad():
             ycbcr = self.dual_model(x, only=True)
         return self.quality_model(x, ycbcr, infer=True)

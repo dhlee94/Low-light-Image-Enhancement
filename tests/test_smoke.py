@@ -98,7 +98,7 @@ def test_eval_iqa_random_backbone(tmp_path):
         "--image_dir", str(tmp_path), "--img_size", "32", "--dim", "32", "--heads", "4", "--n_splits", "3",
         "--out_dir", str(tmp_path / "out"), "--save_regressor"])
     result = eval_iqa.main(args)
-    assert result["n_images"] == 18 and result["feature_dim"] == 16  # (32 / 8) ** 2 patches
+    assert result["n_images"] == 18 and result["feature_dim"] == 32  # --dim
     assert len(result["per_split"]["srcc"]) == 3
     for name in ("random_metrics.json", "random_features.npz", "random_ridge.pkl"):
         assert (tmp_path / "out" / name).exists()
