@@ -1,61 +1,51 @@
 """Command-line arguments shared by every entry point.
 
-All arguments are defined once here. ``scripts/train.py`` and ``scripts/fit_regressor.py`` build
-their parsers from these groups, and the per-task differences live in
-``TASK_DEFAULTS`` instead of being copy-pasted into separate scripts.
+Arguments declare only their type and help text; every default comes from
+``llie/config.py`` (applied with ``set_defaults``), so the command line overrides
+the config for one run and the config is the only place defaults live.
 """
 from __future__ import annotations
 
 import argparse
 from typing import Sequence
 
-TASKS = ("dual", "quality")
-MODES = ("train", "test", "predict")
+from llie import config
 
-# Defaults that differ between the two training tasks. "dual" follows the
-# DualCSNet paper (Sci. Rep. 2023): loss weights 0.01 / 1 / 0.1 / 0.1, Adam betas
-# (0.9, 0.99) and a constant learning rate of 5e-5 (no schedule is given in the paper).
-TASK_DEFAULTS = {
-    "dual": dict(
-        batch_size=1,
-        img_size=512,
-        loss_weights=[0.01, 1.0, 0.1, 0.1],
-        optim="AdamW",
-        lr=5e-5,
-        betas=[0.9, 0.99],
-        scheduler="none",
-        eta_scheduler=5e-5,
-        model_path="./weights/model.pth",
-    ),
-    "quality": dict(
-        batch_size=8,
-        img_size=256,
-        loss_weights=[1.0, 1.0, 1.0, 1.0],
-        optim="SGD",
-        lr=1.25e-3,
-        scheduler="LambdaLR",
-        eta_scheduler=1.25e-4,
-        model_path="./weights/quality_model.pth",
-    ),
-}
+TASKS = tuple(config.TASKS)
+MODES = ("train", "test", "predict")
 
 
 def add_dual_model_args(parser: argparse.ArgumentParser) -> None:
     g = parser.add_argument_group("DualColorNetwork")
-    g.add_argument("--in_channels", type=int, default=3, help="model input channels")
-    g.add_argument("--gp", type=int, default=32, help="hidden channels of the global prior branch")
-    g.add_argument("--hidden_channels", type=int, default=64, help="CPM hidden channels")
+    g.add_argument("--in_channels", type=int, help="model input channels")
+    g.add_argument("--gp", type=int, help="hidden channels of the global prior branch")
+    g.add_argument("--hidden_channels", type=int, help="CPM hidden channels")
+    parser.set_defaults(**config.DUAL_MODEL)
 
 
 def add_quality_model_args(parser: argparse.ArgumentParser) -> None:
     g = parser.add_argument_group("QualityNetwork (ViT)")
-    g.add_argument("--patch_size", type=int, default=8, help="ViT patch size")
-    g.add_argument("--dim", type=int, default=512, help="ViT embedding dim (must be even)")
-    g.add_argument("--encoder_depth", type=int, default=2, help="number of self-attention blocks")
-    g.add_argument("--decoder_depth", type=int, default=1, help="number of cross-attention blocks")
-    g.add_argument("--heads", type=int, default=8, help="number of attention heads")
-    g.add_argument("--drop_out", type=float, default=0.0, help="attention/FFN dropout")
-    g.add_argument("--emb_dropout", type=float, default=0.0, help="patch-embedding dropout")
+    g.add_argument("--patch_size", type=int, help="ViT patch size")
+    g.add_argument("--dim", type=int, help="ViT embedding dim (must be even)")
+    g.add_argument("--encoder_depth", type=int, help="number of self-attention blocks")
+    g.add_argument("--decoder_depth", type=int, help="number of cross-attention blocks")
+    g.add_argument("--heads", type=int, help="number of attention heads")
+    g.add_argument("--drop_out", type=float, help="attention/FFN dropout")
+    g.add_argument("--emb_dropout", type=float, help="patch-embedding dropout")
+    g.add_argument("--separate_ycbcr_embedding", action=argparse.BooleanOptionalAction,
+                   help="give the YCbCr tokens their own patch embedding (--no-separate_ycbcr_embedding: shared)")
+    parser.set_defaults(**config.QUALITY_MODEL)
+
+
+def add_degradation_args(parser: argparse.ArgumentParser) -> None:
+    g = parser.add_argument_group("quality-task degradations (low, high) ranges; 'high' pair is more degraded")
+    g.add_argument("--blur_sigma_high", type=float, nargs=2, help="Gaussian blur sigma, strong")
+    g.add_argument("--blur_sigma_low", type=float, nargs=2, help="Gaussian blur sigma, weak")
+    g.add_argument("--jpeg_quality_high", type=float, nargs=2, help="JPEG quality, strong (lower = heavier)")
+    g.add_argument("--jpeg_quality_low", type=float, nargs=2, help="JPEG quality, weak")
+    g.add_argument("--noise_var_high", type=float, nargs=2, help="Gaussian noise variance on [0, 1], strong")
+    g.add_argument("--noise_var_low", type=float, nargs=2, help="Gaussian noise variance on [0, 1], weak")
+    parser.set_defaults(**config.DEGRADATIONS)
 
 
 def _add_optim_args(parser: argparse.ArgumentParser) -> None:
@@ -64,79 +54,77 @@ def _add_optim_args(parser: argparse.ArgumentParser) -> None:
                    help="dual: [ycbcr, rgb, tv, color] / quality: [contrastive, rank, rotation, distance]")
     g.add_argument("--optim", choices=("SGD", "AdamW"))
     g.add_argument("--lr", type=float, help="learning rate")
-    g.add_argument("--momentum", type=float, default=0.95, help="SGD momentum")
-    g.add_argument("--eps", type=float, default=1e-8, help="AdamW eps")
-    g.add_argument("--betas", type=float, nargs=2, default=[0.9, 0.999], help="AdamW betas (dual default: paper's 0.9 0.99)")
-    g.add_argument("--weight_decay", type=float, default=0.0, help="AdamW weight decay (the paper uses plain Adam)")
+    g.add_argument("--momentum", type=float, help="SGD momentum")
+    g.add_argument("--eps", type=float, help="AdamW eps")
+    g.add_argument("--betas", type=float, nargs=2, help="AdamW betas")
+    g.add_argument("--weight_decay", type=float, help="AdamW weight decay")
 
     g = parser.add_argument_group("scheduler")
     g.add_argument("--scheduler", choices=("LambdaLR", "CosineWarmUp", "none"))
-    g.add_argument("--lambda_weight", type=float, default=0.975, help="LambdaLR: lr *= lambda_weight ** epoch")
-    g.add_argument("--t_scheduler", type=int, default=100, help="CosineWarmUp: first cycle length (T_0)")
-    g.add_argument("--trigger_scheduler", type=int, default=1, help="CosineWarmUp: cycle length multiplier (T_mult)")
+    g.add_argument("--lambda_weight", type=float, help="LambdaLR: lr *= lambda_weight ** epoch")
+    g.add_argument("--t_scheduler", type=int, help="CosineWarmUp: first cycle length (T_0)")
+    g.add_argument("--trigger_scheduler", type=int, help="CosineWarmUp: cycle length multiplier (T_mult)")
     g.add_argument("--eta_scheduler", type=float, help="CosineWarmUp: peak learning rate (eta_max)")
-    g.add_argument("--up_scheduler", type=int, default=10, help="CosineWarmUp: warm-up epochs (T_up)")
-    g.add_argument("--gamma_scheduler", type=float, default=0.5, help="CosineWarmUp: eta_max decay per cycle")
+    g.add_argument("--up_scheduler", type=int, help="CosineWarmUp: warm-up epochs (T_up)")
+    g.add_argument("--gamma_scheduler", type=float, help="CosineWarmUp: eta_max decay per cycle")
 
 
 def build_parser(task: str) -> argparse.ArgumentParser:
     """Full parser for ``train.py`` with the defaults of ``task`` applied."""
-    p = argparse.ArgumentParser(description="Low-light image enhancement training")
+    p = argparse.ArgumentParser(description="Low-light image enhancement training (defaults: llie/config.py)")
     p.add_argument("--task", choices=TASKS, required=True, help="dual: enhancement network / quality: quality network")
-    p.add_argument("--mode", choices=MODES, default="train")
+    p.add_argument("--mode", choices=MODES)
     p.add_argument("--csv_path", required=True,
                    help="directory with train.csv / valid.csv [/ test.csv]; each has an 'image' column "
                         "and, for paired data, an 'input' column of low-light images")
-    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--seed", type=int)
 
     g = p.add_argument_group("runtime")
-    g.add_argument("--accelerator", default="auto", help="cpu / gpu / mps / auto")
-    g.add_argument("--devices", type=int, nargs="+", default=None,
+    g.add_argument("--accelerator", help="cpu / gpu / mps / auto")
+    g.add_argument("--devices", type=int, nargs="+",
                    help="GPU ids to use (e.g. --devices 0 1); omit to let Lightning choose")
-    g.add_argument("--epoch", type=int, default=300, help="max epochs")
+    g.add_argument("--epoch", type=int, help="max epochs")
     g.add_argument("--batch_size", type=int)
-    g.add_argument("--workers", type=int, default=1, help="DataLoader workers")
-    g.add_argument("--check_val", type=int, default=10, help="validate every N epochs")
-    g.add_argument("--check_loss", type=int, default=100, help="log training losses every N steps")
-    g.add_argument("--fast_dev_run", type=int, default=0, help="run N batches of each stage (smoke test)")
-    g.add_argument("--log_path", "--log-path", default="./log", help="CSV log directory")
+    g.add_argument("--workers", type=int, help="DataLoader workers")
+    g.add_argument("--check_val", type=int, help="validate every N epochs")
+    g.add_argument("--check_loss", type=int, help="log training losses every N steps")
+    g.add_argument("--fast_dev_run", type=int, help="run N batches of each stage (smoke test)")
+    g.add_argument("--log_path", "--log-path", help="CSV log directory")
 
     g = p.add_argument_group("data")
     g.add_argument("--img_size", type=int,
                    help="square input size; 0 keeps the original resolution (dual task, batch_size 1 "
                         "unless all images share one size)")
-    g.add_argument("--img_mode", choices=("L", "RGB"), default="RGB",
+    g.add_argument("--img_mode", choices=("L", "RGB"),
                    help="L: images are converted to grayscale (replicated to 3 channels)")
 
     g = p.add_argument_group("weights / outputs")
     g.add_argument("--pretrain", action="store_true", help="initialize from --model_path")
     g.add_argument("--model_path", help="weights to load when --pretrain (or for test/predict)")
-    g.add_argument("--model_save_path", default="./weights", help="directory for the best weights")
-    g.add_argument("--img_save_path", default="./imgs", help="directory for validation comparison images")
-    g.add_argument("--save_n_images", type=int, default=8, help="validation batches to save as images")
-    g.add_argument("--pred_save_path", default="./predictions", help="directory for predict-mode outputs")
+    g.add_argument("--model_save_path", help="directory for the best weights")
+    g.add_argument("--img_save_path", help="directory for validation comparison images")
+    g.add_argument("--save_n_images", type=int, help="validation batches to save as images")
+    g.add_argument("--pred_save_path", help="directory for predict-mode outputs")
 
     _add_optim_args(p)
     add_dual_model_args(p)
 
     if task == "dual":
         g = p.add_argument_group("dual task")
-        g.add_argument("--darken_range", type=float, nargs=2, default=[0.5, 0.9],
+        g.add_argument("--darken_range", type=float, nargs=2,
                        help="input is synthesized by scaling pixel values by a factor in this range")
     else:
         add_quality_model_args(p)
+        add_degradation_args(p)
         g = p.add_argument_group("quality task")
-        g.add_argument("--temperature", type=float, default=0.5, help="group contrastive loss temperature")
-        g.add_argument("--ema_gamma", type=float, default=0.9, help="EMA decay of the pair-selection model")
-        g.add_argument("--dual_model_path", default="./weights/model.pth", help="pretrained DualColorNetwork")
+        g.add_argument("--temperature", type=float, help="group contrastive loss temperature")
+        g.add_argument("--ema_gamma", type=float, help="EMA decay of the pair-selection model")
+        g.add_argument("--dual_model_path", help="pretrained DualColorNetwork")
         g.add_argument("--no_dual_pretrain", dest="dual_pretrain", action="store_false",
                        help="do not load --dual_model_path (debugging only)")
-        g.add_argument("--blur_sigma_high", type=float, nargs=2, default=[2.0, 4.0],
-                       help="sigma range of the strongly blurred image")
-        g.add_argument("--blur_sigma_low", type=float, nargs=2, default=[0.5, 1.5],
-                       help="sigma range of the weakly blurred image")
 
-    p.set_defaults(**TASK_DEFAULTS[task])
+    p.set_defaults(**config.TRAIN)
+    p.set_defaults(**config.TASKS[task])
     return p
 
 

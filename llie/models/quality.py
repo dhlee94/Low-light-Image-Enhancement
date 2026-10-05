@@ -157,9 +157,14 @@ class Transformer(nn.Module):
 
 class ViT(nn.Module):
     def __init__(self, image_size, patch_size, dim, encoder_depth, decoder_depth, heads,
-                 channels=3, dropout=0.0, emb_dropout=0.0):
+                 channels=3, dropout=0.0, emb_dropout=0.0, separate_ycbcr_embedding=False):
         super().__init__()
         self.to_patch_embedding = PatchEmbedding(pair(image_size), pair(patch_size), in_channels=channels, embed_dim=dim)
+        # Optionally a separate embedding for the YCbCr branch, whose channels mean
+        # something different from RGB; None = both branches share to_patch_embedding.
+        self.to_patch_embedding_ycbcr = (
+            PatchEmbedding(pair(image_size), pair(patch_size), in_channels=channels, embed_dim=dim)
+            if separate_ycbcr_embedding else None)
         self.num_patches = self.to_patch_embedding.num_patches
         self.pos_embed = PositionEmbeddingSine(dim // 2, normalize=True)
         self.query_embed = nn.Embedding(self.num_patches, dim)
@@ -173,7 +178,7 @@ class ViT(nn.Module):
         """(B, C, H, W) x 2 -> image feature (B, dim)."""
         batch_size = img.shape[0]
         x = self.to_patch_embedding(img)
-        x_ycbcr = self.to_patch_embedding(ycbcr)
+        x_ycbcr = (self.to_patch_embedding_ycbcr or self.to_patch_embedding)(ycbcr)
         pos_embed = self.pos_embed(x).flatten(2).transpose(1, 2)               # (B, N, dim)
         query_embed = self.query_embed.weight.unsqueeze(0).expand(batch_size, -1, -1)
         tokens = self.dropout(self.norm1(x.flatten(2).transpose(1, 2)))         # (B, N, dim)
@@ -195,10 +200,10 @@ class QualityNetwork(nn.Module):
     """
 
     def __init__(self, image_size, patch_size, dim, encoder_depth, decoder_depth, heads,
-                 channels, drop_out, emb_dropout):
+                 channels, drop_out, emb_dropout, separate_ycbcr_embedding=False):
         super().__init__()
         self.encoder = ViT(image_size, patch_size, dim, encoder_depth, decoder_depth,
-                           heads, channels, drop_out, emb_dropout)
+                           heads, channels, drop_out, emb_dropout, separate_ycbcr_embedding)
         self.linear = nn.Linear(in_features=dim, out_features=4)
         self.quality_linear = nn.Linear(in_features=dim, out_features=1)
         self.apply(init_weights)

@@ -28,13 +28,14 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from llie import config
 from llie.cli import add_dual_model_args, add_quality_model_args
 from llie.data.dataset import ImageDataset
 from llie.data.transforms import build_transform
 from llie.models.dual_color import DualColorNetwork
 from llie.models.weights import load_weights
 from llie.training.quality_module import build_quality_network
-from llie.utils.iqa import DEFAULT_ALPHAS, evaluate_features, fit_regressor, srcc
+from llie.utils.iqa import evaluate_features, fit_regressor, srcc
 from llie.utils.seed import seed_everything
 
 BACKBONES = ("quality", "random", "resnet50")
@@ -50,31 +51,32 @@ def default_device():
 
 
 def parse_args(argv=None):
+    """Defaults come from ``config.EVAL_IQA`` / ``DUAL_MODEL`` / ``QUALITY_MODEL``."""
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--backbone", choices=BACKBONES, default="quality")
-    p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--device", default=default_device())
-    p.add_argument("--label_csv", default="data/kadid10k/dmos.csv", help="CSV with image names, groups and labels")
-    p.add_argument("--image_dir", default="data/kadid10k/images", help="directory the image names are relative to")
-    p.add_argument("--image_col", default="dist_img")
-    p.add_argument("--group_col", default="ref_img",
-                   help="reference image of each sample; splits never share a reference")
-    p.add_argument("--label_col", default="dmos")
-    p.add_argument("--img_size", type=int, default=256,
+    p.add_argument("--backbone", choices=BACKBONES)
+    p.add_argument("--seed", type=int)
+    p.add_argument("--device", default=default_device(), help="default: cuda > mps > cpu, whichever is available")
+    p.add_argument("--label_csv", help="CSV with image names, groups and labels")
+    p.add_argument("--image_dir", help="directory the image names are relative to")
+    p.add_argument("--image_col")
+    p.add_argument("--group_col", help="reference image of each sample; splits never share a reference")
+    p.add_argument("--label_col")
+    p.add_argument("--img_size", type=int,
                    help="square input size for quality/random (must match training); resnet50 uses the original size")
-    p.add_argument("--batch_size", type=int, default=16)
-    p.add_argument("--workers", type=int, default=2)
-    p.add_argument("--n_splits", type=int, default=10)
-    p.add_argument("--test_size", type=float, default=0.2)
-    p.add_argument("--alphas", type=float, nargs="+", default=list(DEFAULT_ALPHAS),
-                   help="Ridge strengths searched per split (one value = fixed)")
-    p.add_argument("--dual_model_path", default="./weights/model.pth")
-    p.add_argument("--quality_model_path", default="./weights/quality_model.pth")
-    p.add_argument("--out_dir", default="./iqa_results", help="features (.npz) and metrics (.json) per backbone")
+    p.add_argument("--batch_size", type=int)
+    p.add_argument("--workers", type=int)
+    p.add_argument("--n_splits", type=int)
+    p.add_argument("--test_size", type=float)
+    p.add_argument("--alphas", type=float, nargs="+", help="Ridge strengths searched per split (one value = fixed)")
+    p.add_argument("--inner_folds", type=int, help="grouped CV folds used to choose alpha")
+    p.add_argument("--dual_model_path")
+    p.add_argument("--quality_model_path")
+    p.add_argument("--out_dir", help="features (.npz) and metrics (.json) per backbone")
     p.add_argument("--save_regressor", action="store_true",
                    help="also fit Ridge on ALL samples and pickle it to <out_dir>/<backbone>_ridge.pkl")
     add_dual_model_args(p)
     add_quality_model_args(p)
+    p.set_defaults(**config.EVAL_IQA)
     return p.parse_args(argv)
 
 
@@ -145,7 +147,7 @@ def main(args):
              features=feats, labels=labels, groups=groups, **({} if scores is None else {"scores": scores}))
 
     result = evaluate_features(feats, labels, groups, n_splits=args.n_splits, test_size=args.test_size,
-                               alphas=args.alphas, seed=args.seed)
+                               alphas=args.alphas, seed=args.seed, inner_folds=args.inner_folds)
     result.update(backbone=args.backbone, n_images=len(df), feature_dim=int(feats.shape[1]))
     if scores is not None:
         # Score head without any regression (self-supervised: sign is arbitrary).
@@ -164,7 +166,7 @@ def main(args):
     if args.save_regressor:
         path = os.path.join(args.out_dir, f"{args.backbone}_ridge.pkl")
         with open(path, "wb") as f, np.errstate(divide="ignore", over="ignore", invalid="ignore"):
-            pickle.dump(fit_regressor(feats, labels, groups, args.alphas), f)
+            pickle.dump(fit_regressor(feats, labels, groups, args.alphas, args.inner_folds), f)
         print(f"  Ridge fit on all {len(df)} samples -> {path}")
     return result
 
