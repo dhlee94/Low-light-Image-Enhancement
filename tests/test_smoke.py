@@ -80,3 +80,25 @@ def test_dual_paired_original_resolution(tmp_path):
     train.main(["--task", "dual", *common])
     train.main(["--task", "dual", "--mode", "predict", "--model_path", str(tmp_path / "weights" / "model.pth"), *common])
     assert sorted(os.listdir(tmp_path / "pred" / "enhanced")) == ["low0.png", "low1.png", "low2.png"]
+
+
+def test_eval_iqa_random_backbone(tmp_path):
+    eval_iqa = _load_script("eval_iqa")
+    rng = np.random.default_rng(0)
+    rows = []
+    for ref in range(6):
+        for level in range(3):
+            name = f"I{ref}_{level}.png"
+            Image.fromarray(rng.integers(0, 255, (40, 48, 3), dtype=np.uint8)).save(tmp_path / name)
+            rows.append({"dist_img": name, "ref_img": f"I{ref}.png", "dmos": float(5 - level)})
+    pd.DataFrame(rows).to_csv(tmp_path / "dmos.csv", index=False)
+
+    args = eval_iqa.parse_args([
+        "--backbone", "random", "--device", "cpu", "--workers", "0", "--label_csv", str(tmp_path / "dmos.csv"),
+        "--image_dir", str(tmp_path), "--img_size", "32", "--dim", "32", "--heads", "4", "--n_splits", "3",
+        "--out_dir", str(tmp_path / "out"), "--save_regressor"])
+    result = eval_iqa.main(args)
+    assert result["n_images"] == 18 and result["feature_dim"] == 16  # (32 / 8) ** 2 patches
+    assert len(result["per_split"]["srcc"]) == 3
+    for name in ("random_metrics.json", "random_features.npz", "random_ridge.pkl"):
+        assert (tmp_path / "out" / name).exists()

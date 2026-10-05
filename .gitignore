@@ -4,6 +4,6 @@ weights/
 log/
 imgs/
 predictions/
-regression_result.csv
+iqa_results/
 data/
 log_*.txt

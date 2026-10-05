@@ -17,6 +17,7 @@ dependencies = [
     "opencv-python",
     "Pillow",
     "scikit-learn",
+    "scipy",
     "tqdm",
 ]
 
