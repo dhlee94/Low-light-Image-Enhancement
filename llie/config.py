@@ -70,6 +70,19 @@ TASKS = {
         ema_gamma=0.9,                      # EMA decay of the pair-selection model
         dual_model_path="./weights/model.pth",
         dual_pretrain=True,
+        # Switches (the first option is the original behaviour):
+        # which degradation type's (strong, weak) pair to train on, per sample:
+        #   "max_gap": the pair the EMA model already separates most (largest |score gap|)
+        #   "min_margin": the hardest pair (smallest score_high - score_low, i.e. most violated)
+        #   "random": uniformly random type
+        pair_selection="max_gap",
+        # contrastive loss on the selected pair's features:
+        #   "group": weak vs strong across the batch, ignoring degradation type
+        #   "type_severity": supervised contrastive; positives share type AND severity (CONTRIQUE-like)
+        #   "none": disabled (logged as 0)
+        contrastive="group",
+        # degradation ranges, see DEGRADATION_PRESETS
+        degradation_preset="original",
     ),
 }
 
@@ -93,14 +106,28 @@ QUALITY_MODEL = dict(
 )
 
 # ---- synthetic degradations for the quality task ("high" = more degraded) ----------
-DEGRADATIONS = dict(
-    blur_sigma_high=[2.0, 4.0],
-    blur_sigma_low=[0.5, 1.5],
-    jpeg_quality_high=[40, 60],
-    jpeg_quality_low=[80, 90],
-    noise_var_high=[5e-5, 5.1e-5],   # Gaussian noise variance on the [0, 1] scale
-    noise_var_low=[1e-5, 1.1e-5],
-)
+# Each entry is a (min, max) range. SSIM vs. the clean image, measured on the 81
+# KADID-10k reference images at 256x256, is noted per range.
+DEGRADATION_PRESETS = {
+    # The original ranges: strengths are very uneven across types (noise is almost invisible).
+    "original": dict(
+        blur_sigma_high=[2.0, 4.0],      # SSIM 0.71 - 0.57
+        blur_sigma_low=[0.5, 1.5],       # SSIM 0.98 - 0.78
+        jpeg_quality_high=[40, 60],      # SSIM 0.88 - 0.91
+        jpeg_quality_low=[80, 90],       # SSIM 0.94 - 0.96
+        noise_var_high=[5e-5, 5.1e-5],   # SSIM 0.98   (variance on the [0, 1] scale)
+        noise_var_low=[1e-5, 1.1e-5],    # SSIM 0.996
+    ),
+    # Every type matched to strong ~0.65-0.75 and weak ~0.86-0.92 SSIM.
+    "balanced": dict(
+        blur_sigma_high=[1.8, 2.6],      # SSIM 0.73 - 0.65
+        blur_sigma_low=[0.8, 1.0],       # SSIM 0.91 - 0.86
+        jpeg_quality_high=[5, 10],       # SSIM 0.65 - 0.75
+        jpeg_quality_low=[30, 65],       # SSIM 0.86 - 0.91
+        noise_var_high=[1.3e-3, 2.5e-3], # SSIM 0.75 - 0.65
+        noise_var_low=[2.5e-4, 5e-4],    # SSIM 0.92 - 0.87
+    ),
+}
 
 # ---- quality evaluation (scripts/eval_iqa.py) ----------------------------------------
 EVAL_IQA = dict(

@@ -58,7 +58,8 @@ def main(argv=None):
     datamodule = DataModule(load_split_csvs(args.csv_path), task=args.task, img_size=args.img_shape,
                             img_mode=args.img_mode, batch_size=args.batch_size, num_workers=args.workers,
                             seed=args.seed, darken_range=getattr(args, "darken_range", config.TASKS["dual"]["darken_range"]),
-                            degradations={k: getattr(args, k) for k in config.DEGRADATIONS if hasattr(args, k)})
+                            degradations={k: getattr(args, k) for k in config.DEGRADATION_PRESETS["original"]
+                                          if hasattr(args, k)})
     module = MODULES[args.task](args)
     trainer = build_trainer(args)
 

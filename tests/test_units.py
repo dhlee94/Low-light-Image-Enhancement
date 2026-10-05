@@ -6,14 +6,14 @@ import pytest
 import torch
 from PIL import Image
 
-from llie.training.losses import GroupContrastiveLoss
+from llie.training.losses import GroupContrastiveLoss, SupervisedContrastiveLoss
 from llie.data.dataset import ImageDataset, QualityImageDataset
 from llie.data.transforms import build_transform
 from llie.models.dual_color import DualColorNetwork
 from llie.models.parts import RGB2YCbCr
 from llie.models.quality import QualityNetwork
 from llie.utils.metrics import calculate_delta_e, calculate_psnr, calculate_ssim, rgb_to_lab
-from llie.training.pairing import select_hardest_pair
+from llie.training.pairing import select_pair
 from llie.training.rotation import rotate_batch
 
 
@@ -106,10 +106,11 @@ def test_rotate_batch_matches_legacy_rotation():
     assert labels.tolist() == [0] * 3 + [1] * 3 + [2] * 3 + [3] * 3
 
 
-def test_select_hardest_pair_picks_largest_score_gap():
+def _pair_fixture():
     b = 2
+    # Scores = mean pixel value; the weak pair scores 0.3 for every type.
     highs = [torch.full((b, 3, 4, 4), v) for v in (0.1, 0.9, 0.5)]
-    lows = [torch.zeros(b, 3, 4, 4)] * 3
+    lows = [torch.full((b, 3, 4, 4), 0.3)] * 3
 
     def color_model(x, only=True):
         return x
@@ -117,8 +118,45 @@ def test_select_hardest_pair_picks_largest_score_gap():
     def scorer(x, ycbcr, infer=True):
         return x.mean(dim=(1, 2, 3)).unsqueeze(1), None
 
-    high, low, high_y, _ = select_hardest_pair(color_model, scorer, highs, lows)
+    return color_model, scorer, highs, lows
+
+
+def test_select_pair_max_gap_picks_largest_score_gap():
+    color_model, scorer, highs, lows = _pair_fixture()
+    high, low, high_y, _, idx = select_pair(color_model, scorer, highs, lows, mode="max_gap")
     assert torch.allclose(high, highs[1]) and torch.allclose(high_y, highs[1])
+    assert idx.tolist() == [1, 1]
+
+
+def test_select_pair_min_margin_picks_wrongly_ranked_pair():
+    color_model, scorer, highs, lows = _pair_fixture()
+    # margins: 0.1-0.3=-0.2 (wrong order), 0.6, 0.2 -> type 0 is the hardest
+    high, *_, idx = select_pair(color_model, scorer, highs, lows, mode="min_margin")
+    assert torch.allclose(high, highs[0]) and idx.tolist() == [0, 0]
+
+
+def test_select_pair_random_is_seeded_and_consistent():
+    color_model, scorer, highs, lows = _pair_fixture()
+    highs = [torch.full((8, 3, 4, 4), v) for v in (0.1, 0.9, 0.5)]
+    lows = [torch.full((8, 3, 4, 4), 0.3)] * 3
+    out = select_pair(color_model, scorer, highs, lows, mode="random", generator=torch.Generator().manual_seed(0))
+    again = select_pair(color_model, scorer, highs, lows, mode="random", generator=torch.Generator().manual_seed(0))
+    high, _, high_y, _, idx = out
+    assert torch.equal(idx, again[4])
+    for i, k in enumerate(idx.tolist()):
+        assert torch.equal(high[i], highs[k][i]) and torch.equal(high_y[i], highs[k][i])
+
+
+def test_supervised_contrastive_prefers_label_clusters():
+    loss_fn = SupervisedContrastiveLoss(temperature=0.5)
+    labels = torch.tensor([0, 0, 1, 1])
+    clustered = torch.tensor([[1.0, 0.0], [0.9, 0.1], [0.0, 1.0], [0.1, 0.9]])
+    mixed = torch.tensor([[1.0, 0.0], [0.0, 1.0], [0.9, 0.1], [0.1, 0.9]])
+    assert loss_fn(clustered, labels) < loss_fn(mixed, labels)
+    lone = torch.randn(3, 2, requires_grad=True)  # no anchor has a positive
+    loss = loss_fn(lone, torch.tensor([0, 1, 2]))
+    assert loss.item() == 0.0
+    loss.backward()
 
 
 def test_contrastive_loss_batch_of_one_is_finite():
@@ -193,7 +231,7 @@ def test_every_cli_default_comes_from_config():
         parser = build_parser(task)
         known = set(config.TRAIN) | set(config.TASKS[task]) | set(config.DUAL_MODEL)
         if task == "quality":
-            known |= set(config.QUALITY_MODEL) | set(config.DEGRADATIONS)
+            known |= set(config.QUALITY_MODEL) | set(config.DEGRADATION_PRESETS["original"])
         assert _option_dests(parser) - {"task", "csv_path"} <= known
         # No argparse-level default can hide a config value.
         assert all(a.default is None or a.dest in known for a in parser._actions if a.dest != "help")
@@ -235,3 +273,16 @@ def test_quality_dataset_degradations_are_configurable(dotted_image_dir):
     item = ds[0]
     torch.testing.assert_close(item["noise_high"], item["input"])  # zero variance -> no noise
     assert ds.degradations["jpeg_quality_high"] == [40, 60]       # untouched keys keep the config value
+
+
+def test_degradation_preset_resolution():
+    from llie import config
+    from llie.cli import parse_args
+    base = ["--task", "quality", "--csv_path", "x"]
+    original, balanced = config.DEGRADATION_PRESETS["original"], config.DEGRADATION_PRESETS["balanced"]
+    args = parse_args(base)
+    assert args.degradation_preset == "original" and args.noise_var_high == original["noise_var_high"]
+    args = parse_args(base + ["--degradation_preset", "balanced", "--noise_var_high", "0.1", "0.2"])
+    assert args.noise_var_high == [0.1, 0.2]                       # explicit range wins
+    assert args.jpeg_quality_high == balanced["jpeg_quality_high"]  # the rest from the preset
+    assert args.blur_sigma_low == balanced["blur_sigma_low"]

@@ -37,15 +37,28 @@ def add_quality_model_args(parser: argparse.ArgumentParser) -> None:
     parser.set_defaults(**config.QUALITY_MODEL)
 
 
+DEGRADATION_KEYS = tuple(config.DEGRADATION_PRESETS["original"])
+
+
 def add_degradation_args(parser: argparse.ArgumentParser) -> None:
-    g = parser.add_argument_group("quality-task degradations (low, high) ranges; 'high' pair is more degraded")
+    """Ranges default to None and are filled from --degradation_preset in ``resolve_degradations``."""
+    g = parser.add_argument_group("quality-task degradations: (min, max) ranges; the 'high' pair is more degraded; "
+                                  "unset ranges come from --degradation_preset")
+    g.add_argument("--degradation_preset", choices=tuple(config.DEGRADATION_PRESETS))
     g.add_argument("--blur_sigma_high", type=float, nargs=2, help="Gaussian blur sigma, strong")
     g.add_argument("--blur_sigma_low", type=float, nargs=2, help="Gaussian blur sigma, weak")
     g.add_argument("--jpeg_quality_high", type=float, nargs=2, help="JPEG quality, strong (lower = heavier)")
     g.add_argument("--jpeg_quality_low", type=float, nargs=2, help="JPEG quality, weak")
     g.add_argument("--noise_var_high", type=float, nargs=2, help="Gaussian noise variance on [0, 1], strong")
     g.add_argument("--noise_var_low", type=float, nargs=2, help="Gaussian noise variance on [0, 1], weak")
-    parser.set_defaults(**config.DEGRADATIONS)
+
+
+def resolve_degradations(args: argparse.Namespace) -> None:
+    """Fill every range not given on the command line from the chosen preset."""
+    preset = config.DEGRADATION_PRESETS[args.degradation_preset]
+    for key in DEGRADATION_KEYS:
+        if getattr(args, key) is None:
+            setattr(args, key, list(preset[key]))
 
 
 def _add_optim_args(parser: argparse.ArgumentParser) -> None:
@@ -122,6 +135,12 @@ def build_parser(task: str) -> argparse.ArgumentParser:
         g.add_argument("--dual_model_path", help="pretrained DualColorNetwork")
         g.add_argument("--no_dual_pretrain", dest="dual_pretrain", action="store_false",
                        help="do not load --dual_model_path (debugging only)")
+        g.add_argument("--pair_selection", choices=("max_gap", "min_margin", "random"),
+                       help="max_gap: pair the EMA model separates most (original) / min_margin: hardest pair / "
+                            "random: random degradation type")
+        g.add_argument("--contrastive", choices=("group", "type_severity", "none"),
+                       help="group: weak vs strong (original) / type_severity: positives share degradation type "
+                            "and severity / none: disabled")
 
     p.set_defaults(**config.TRAIN)
     p.set_defaults(**config.TASKS[task])
@@ -153,6 +172,8 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     pre.add_argument("--task", choices=TASKS)
     known, _ = pre.parse_known_args(argv)
     args = build_parser(known.task or "dual").parse_args(argv)
+    if args.task == "quality":
+        resolve_degradations(args)
     validate_args(args)
     args.img_shape = (args.img_size, args.img_size) if args.img_size else None
     return args

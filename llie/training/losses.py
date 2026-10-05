@@ -58,3 +58,32 @@ class GroupContrastiveLoss(nn.Module):
         numerator = torch.exp(positives / self.temperature)
         denominator = (cross_group * torch.exp(sim / self.temperature)).sum(dim=1)
         return -torch.log((numerator / (numerator + denominator)).sum() / (2 * b))
+
+
+class SupervisedContrastiveLoss(nn.Module):
+    """Supervised contrastive loss (Khosla et al., 2020) over L2-normalized embeddings.
+
+    Every embedding with the same label is a positive of the anchor, all others are
+    negatives:  loss_i = -mean_{p in P(i)} log( exp(s_ip / T) / sum_{a != i} exp(s_ia / T) ),
+    averaged over anchors that have at least one positive (0 if none do).
+    """
+
+    def __init__(self, temperature=0.5):
+        super().__init__()
+        self.temperature = float(temperature)
+
+    def forward(self, embeddings, labels):
+        z = F.normalize(embeddings, dim=1)
+        logits = z @ z.t() / self.temperature
+        n = z.shape[0]
+        not_self = ~torch.eye(n, dtype=torch.bool, device=z.device)
+        positives = (labels[:, None] == labels[None, :]) & not_self
+
+        logits = logits.masked_fill(~not_self, float("-inf"))
+        log_prob = logits - torch.logsumexp(logits, dim=1, keepdim=True)
+        n_pos = positives.sum(dim=1)
+        has_pos = n_pos > 0
+        if not has_pos.any():
+            return embeddings.sum() * 0.0  # keeps the graph so backward() still works
+        mean_log_prob = log_prob.masked_fill(~positives, 0.0).sum(dim=1)[has_pos] / n_pos[has_pos]
+        return -mean_log_prob.mean()
