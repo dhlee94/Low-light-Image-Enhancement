@@ -21,13 +21,7 @@ def load_weights(model: nn.Module, path: str) -> nn.Module:
     """Load a ``state_dict`` saved with ``torch.save(model.state_dict(), path)``.
 
     Loads onto CPU first so weights saved on another GPU id still load, then
-    copies into the model's current device. Keys listed in the model's
-    ``OBSOLETE_KEY_PREFIXES`` (parameters removed during refactoring) are dropped
-    so old checkpoints remain loadable; every other mismatch still raises.
+    copies into the model's current device. Any key mismatch raises.
     """
-    state = torch.load(path, map_location="cpu")
-    prefixes = tuple(getattr(model, "OBSOLETE_KEY_PREFIXES", ()))
-    if prefixes:
-        state = {k: v for k, v in state.items() if not k.startswith(prefixes)}
-    model.load_state_dict(state)
+    model.load_state_dict(torch.load(path, map_location="cpu"))
     return model

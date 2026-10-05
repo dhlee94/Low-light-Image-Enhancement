@@ -64,11 +64,11 @@ python scripts/eval_iqa.py --backbone quality --dual_model_path ... --quality_mo
 # -> iqa_results/<backbone>_{metrics.json,features.npz}; --save_regressor also pickles a Ridge fit on all images
 ```
 
-Baselines (KADID-10k, median of 10 splits; Ridge alpha chosen by grouped CV, 1e5 in every split):
+Baselines (KADID-10k, median of 10 splits, seed 0; Ridge alpha chosen by grouped CV):
 
 | backbone | features | SRCC | PLCC |
 |---|---|---|---|
-| `random` (untrained Dual + Quality) | 1024 | 0.077 | 0.107 |
+| `random` (untrained Dual + Quality) | 512 | 0.232 | 0.263 |
 | `resnet50` (ImageNet) | 2048 | 0.495 | 0.525 |
 
 `python scripts/train.py --task <dual|quality> --help` lists every option with the task's defaults.

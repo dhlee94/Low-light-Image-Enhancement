@@ -2,7 +2,8 @@
 
 Tokens are image patches of the input (self-attention encoder) and of its
 YCbCr enhancement (cross-attention decoder). All attention layers use
-``batch_first=True``: tensors are (batch, tokens, dim) throughout.
+``batch_first=True``: tensors are (batch, tokens, dim) throughout. The image
+feature is the layer-normalized mean of the output tokens, (batch, dim).
 """
 import math
 from typing import Optional
@@ -166,9 +167,10 @@ class ViT(nn.Module):
         self.transformer = Transformer(dim, encoder_depth, decoder_depth, heads, dropout)
         self.norm1 = nn.LayerNorm(dim)
         self.norm2 = nn.LayerNorm(dim)
+        self.norm_out = nn.LayerNorm(dim)
 
     def forward(self, img, ycbcr):
-        """(B, C, H, W) x 2 -> per-patch feature (B, num_patches)."""
+        """(B, C, H, W) x 2 -> image feature (B, dim)."""
         batch_size = img.shape[0]
         x = self.to_patch_embedding(img)
         x_ycbcr = self.to_patch_embedding(ycbcr)
@@ -177,11 +179,13 @@ class ViT(nn.Module):
         tokens = self.dropout(self.norm1(x.flatten(2).transpose(1, 2)))         # (B, N, dim)
         tokens_ycbcr = self.dropout(self.norm2(x_ycbcr.flatten(2).transpose(1, 2)))
         out = self.transformer(tokens, tokens_ycbcr, pos_embed, query_embed)
-        return out.mean(dim=-1)
+        # Average over patches, not channels: averaging each token over its channels
+        # (the previous version) left one scalar per patch, tied to its position.
+        return self.norm_out(out.mean(dim=1))
 
 
 class QualityNetwork(nn.Module):
-    """Patch features + two heads: quality score (1) and rotation class (4).
+    """Image feature (dim) + two heads: quality score (1) and rotation class (4).
 
     forward(x, ycbcr, infer=True)               -> (score, feature)
     forward(x, ycbcr, batch_size, infer=False)  -> (score, feature, rotation_logits)
@@ -190,16 +194,13 @@ class QualityNetwork(nn.Module):
         encode/score/classify_rotation directly).
     """
 
-    # Parameters removed in the refactor; dropped when loading old checkpoints.
-    OBSOLETE_KEY_PREFIXES = ("encoder.transformer.norm.",)
-
     def __init__(self, image_size, patch_size, dim, encoder_depth, decoder_depth, heads,
                  channels, drop_out, emb_dropout):
         super().__init__()
         self.encoder = ViT(image_size, patch_size, dim, encoder_depth, decoder_depth,
                            heads, channels, drop_out, emb_dropout)
-        self.linear = nn.Linear(in_features=self.encoder.num_patches, out_features=4)
-        self.quality_linear = nn.Linear(in_features=self.encoder.num_patches, out_features=1)
+        self.linear = nn.Linear(in_features=dim, out_features=4)
+        self.quality_linear = nn.Linear(in_features=dim, out_features=1)
         self.apply(init_weights)
 
     def encode(self, x, ycbcr):

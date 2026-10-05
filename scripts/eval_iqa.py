@@ -85,7 +85,7 @@ def _loader(paths, transform, args):
 
 @torch.no_grad()
 def extract_quality(args, paths, device, pretrained):
-    """QualityNetwork features (B, num_patches) and its raw score head output."""
+    """QualityNetwork features (B, dim) and its raw score head output."""
     dual_model = DualColorNetwork(in_channels=args.in_channels, gp=args.gp, hidden_channels=args.hidden_channels)
     quality_model = build_quality_network(args)
     if pretrained:
